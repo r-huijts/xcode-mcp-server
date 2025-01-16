@@ -4,29 +4,57 @@
   <img src="xcode_icon.svg" width="128" height="128" alt="Xcode MCP Server Icon">
 </div>
 
-A Model Context Protocol (MCP) server for interacting with Xcode projects. This server provides a bridge between Claude and Xcode projects, allowing Claude to read, write, and manage Xcode project files.
+A Model Context Protocol (MCP) server that brings the power of AI to your Xcode projects. This server acts as a bridge between Claude and your local Xcode development environment, enabling intelligent code assistance, project management, and automated development tasks.
 
-## Features
+## What is Xcode MCP Server?
 
-- **Project Detection**: Automatically detects active Xcode projects or allows manual project selection
-- **File Operations**:
-  - Read files from Xcode projects
-  - Write/update project files
-  - List project files with optional file type filtering
-- **Project Information**:
-  - Get project targets, configurations, and schemes
-  - Analyze source files
-  - Build projects with specified configurations
-  - Run tests with optional test plans
+At its core, this server follows a client-server architecture where Claude can securely interact with your local Xcode projects:
 
-## Setup
+```mermaid
+flowchart LR
+    subgraph "Your Computer"
+        Claude["Claude Desktop"]
+        MCP["Xcode MCP Server"]
+        XP[("Xcode Projects")]
 
-1. **Prerequisites**:
-   - Node.js (v14 or later)
-   - Xcode Command Line Tools
-   - TypeScript
+        Claude <-->|"MCP Protocol\n(Commands & Results)"| MCP
+        MCP <-->|"Local Access\n(File & Build Operations)"| XP
+    end
+```
 
-2. **Installation**:
+The communication between the Xcode MCP server and your local projects happens entirely on your machine—your code is not exposed to the internet. The Model Context Protocol ensures that Claude can only perform approved operations through well-defined interfaces, giving you a secure way to let AI assist with your development while maintaining complete control.
+
+## Key Features
+
+### 🔍 Intelligent Project Detection
+- Automatically finds and connects to your active Xcode project
+- Supports manual project selection for precise control
+- Maintains workspace context across interactions
+
+### 📁 Smart File Operations
+- Read and analyze Swift, Objective-C, and project configuration files
+- Create and modify source files with proper syntax and imports
+- Intelligent file listing with type filtering and search
+
+### 🛠 Project Management
+- Access project targets, configurations, and schemes
+- Analyze source files for potential issues
+- Execute builds with specific configurations
+- Run and manage test suites
+
+## Getting Started
+
+### Prerequisites
+
+Before you begin, ensure you have:
+- Node.js (v14 or later)
+- Xcode Command Line Tools
+- TypeScript
+- Claude Desktop with MCP support
+
+### Quick Setup
+
+1. **Install the Server**:
    ```bash
    # Clone the repository
    git clone [repository-url]
@@ -39,8 +67,8 @@ A Model Context Protocol (MCP) server for interacting with Xcode projects. This 
    npm run build
    ```
 
-3. **Configuration**:
-   Add the server configuration to your Claude Desktop config file (typically located at `~/Library/Application Support/Claude/claude_desktop_config.json`):
+2. **Configure Claude Desktop**:
+   Add this to your Claude Desktop config file (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
    ```json
    {
@@ -58,78 +86,67 @@ A Model Context Protocol (MCP) server for interacting with Xcode projects. This 
    }
    ```
 
-   Replace `/path/to/xcode-server` with the actual path to your installation, and `/path/to/your/xcode/projects` with the directory where you keep your Xcode projects.
+   Replace the paths with your actual installation and projects directory.
 
-## Usage
+## Working with the Server
 
-The server provides several tools that Claude can use to interact with Xcode projects:
+The server provides a natural interface for Claude to assist with your Xcode development. Here are some ways you can interact:
 
-### Project Management
-- `set_projects_base_dir`: Set the base directory where Xcode projects are stored
-- `set_project_path`: Explicitly set the active Xcode project
-- `get_active_project`: Get information about the currently active project
-
-### File Operations
-- `read_file`: Read contents of a file in the Xcode project
-- `write_file`: Write or update contents of a file in the project
-- `list_project_files`: List all files in the project with optional file type filtering
-
-### Project Operations
-- `analyze_file`: Analyze source files for issues
-- `build_project`: Build the project with specified configuration and scheme
-- `run_tests`: Run project tests with optional test plan
-
-### Example Interactions
-
-Here are some example requests you can make to Claude when using this server:
-
-#### Project Management
-- "Please set my Xcode projects directory to `/Users/username/Documents/XcodeProjects`"
-- "What's my current active Xcode project?"
+### Project Navigation
+Ask Claude to:
+- "Set my Xcode projects directory to `/Users/username/Documents/XcodeProjects`"
+- "What's my current active project?"
 - "Switch to the MyApp.xcodeproj project"
-- "List all Swift files in my current project"
+- "Show me all Swift files in the project"
 
-#### File Operations
-- "Show me the contents of App.swift"
-- "Create a new view called ProfileView"
-- "Update the UserModel.swift file to add a new @Published property called 'email'"
-- "Find all files that contain API calls"
-- "Show me all Swift files that use the ViewModifier protocol"
+### Code Creation & Modification
+Get help with:
+- "Create a new view called ProfileView with a preview provider"
+- "Add a @Published email property to UserModel.swift"
+- "Set up a modern async/await networking layer"
+- "Implement Core Data models with SwiftUI bindings"
 
-#### Project Analysis and Building
-- "Analyze the NetworkManager.swift file for potential issues"
-- "Build my project using the Debug configuration"
+### Project Analysis & Building
+Let Claude assist with:
+- "Analyze NetworkManager.swift for potential issues"
+- "Build the project in Debug configuration"
 - "Run the unit tests for the UserModel module"
-- "What are the available build schemes in my project?"
-- "Show me the build configurations available"
+- "What build schemes are available?"
 
-#### Common Tasks
-- "Add a new custom SwiftUI view modifier"
-- "Create an async/await networking layer using URLSession"
-- "Implement Core Data model classes with SwiftUI @FetchRequest support"
-- "Add preview provider for my ProfileView"
-- "Set up environment objects for dependency injection"
+## Development and Debugging
 
-These are just examples - you can phrase your requests naturally, and Claude will understand how to use the server's capabilities to help you.
+### Building the Project
+```bash
+npm run build
+```
 
-## Development
+### Running Tests
+```bash
+npm test
+```
 
-1. **Building**:
-   ```bash
-   npm run build
-   ```
+### Troubleshooting
+The server provides detailed logging through stderr. Common issues and their solutions:
 
-2. **Testing**:
-   ```bash
-   npm test
-   ```
+1. **Project Detection Issues**
+   - Verify your projects directory path
+   - Ensure Xcode Command Line Tools are installed
+   - Check file permissions
 
-3. **Debugging**:
-   The server logs errors and warnings to stderr, which can be helpful for troubleshooting.
+2. **Build Problems**
+   - Validate Xcode installation
+   - Check project configurations
+   - Review build settings
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+We welcome contributions! Whether it's:
+- 🐛 Bug fixes
+- ✨ New features
+- 📚 Documentation improvements
+- 🧪 Additional tests
+
+Feel free to submit a Pull Request.
 
 ## License
 
