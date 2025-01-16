@@ -6,6 +6,8 @@
 
 A Model Context Protocol (MCP) server that brings the power of AI to your Xcode projects. This server acts as a bridge between Claude and your local Xcode development environment, enabling intelligent code assistance, project management, and automated development tasks.
 
+<a href="https://glama.ai/mcp/servers/mmxuwmm7sc"><img width="380" height="200" src="https://glama.ai/mcp/servers/mmxuwmm7sc/badge" alt="Xcode Server MCP server" /></a>
+
 ## What is Xcode MCP Server?
 
 At its core, this server follows a client-server architecture where Claude can securely interact with your local Xcode projects:
