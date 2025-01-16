@@ -1,5 +1,9 @@
 # Xcode MCP Server
 
+<div align="center">
+  <img src="xcode_icon.svg" width="128" height="128" alt="Xcode MCP Server Icon">
+</div>
+
 A Model Context Protocol (MCP) server for interacting with Xcode projects. This server provides a bridge between Claude and Xcode projects, allowing Claude to read, write, and manage Xcode project files.
 
 ## Features
