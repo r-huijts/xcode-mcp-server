@@ -1,84 +1,74 @@
 # Xcode MCP Server
 
-<div align="center">
-  <img src="xcode_icon.svg" width="128" height="128" alt="Xcode MCP Server Icon">
-</div>
+<img src="xcode_icon.svg" width="100" height="100" alt="Xcode MCP Server Icon">
 
-A Model Context Protocol (MCP) server that brings the power of AI to your Xcode projects. This server acts as a bridge between Claude and your local Xcode development environment, enabling intelligent code assistance, project management, and automated development tasks.
+A Model Context Protocol (MCP) server that provides Xcode integration capabilities for Large Language Models (LLMs). This server enables AI assistants to interact with Xcode projects, manage iOS simulators, and perform various Xcode-related tasks.
 
-<a href="https://glama.ai/mcp/servers/mmxuwmm7sc"><img width="380" height="200" src="https://glama.ai/mcp/servers/mmxuwmm7sc/badge" alt="Xcode Server MCP server" /></a>
+## Features
 
-## What is Xcode MCP Server?
+### Project Management
+- 🔍 Auto-detect active Xcode projects
+- 📁 Set custom project directories
+- 📊 Get detailed project information (targets, configurations, schemes)
 
-At its core, this server follows a client-server architecture where Claude can securely interact with your local Xcode projects:
+### File Operations
+- 📖 Read project files with proper MIME type detection
+- ✏️ Write and update files within projects
+- 📋 List all files in a project with optional file type filtering
 
-```mermaid
-flowchart LR
-    subgraph "Your Computer"
-        Claude["Claude Desktop"]
-        MCP["Xcode MCP Server"]
-        XP[("Xcode Projects")]
+### Build and Analysis
+- 🔨 Build projects with specific configurations and schemes
+- 🧪 Run project tests with optional test plans
+- 🔍 Analyze source files using Xcode's static analyzer
 
-        Claude <-->|"MCP Protocol\n(Commands & Results)"| MCP
-        MCP <-->|"Local Access\n(File & Build Operations)"| XP
-    end
-```
+### Simulator Management
+- 📱 List available iOS simulators
+- ▶️ Boot simulators by UDID
+- ⏹️ Shutdown active simulators
 
-The communication between the Xcode MCP server and your local projects happens entirely on your machine—your code is not exposed to the internet. The Model Context Protocol ensures that Claude can only perform approved operations through well-defined interfaces, giving you a secure way to let AI assist with your development while maintaining complete control.
+### Development Tools
+- 🛠️ Execute Xcode tools via xcrun
+- 📦 Compile asset catalogs
+- 🔄 Update Swift package dependencies
+- 🐛 Launch LLDB debugger
+- 📊 Capture performance traces with xctrace
 
-## Key Features
+## Installation
 
-### 🔍 Intelligent Project Detection
-- Automatically finds and connects to your active Xcode project
-- Supports manual project selection for precise control
-- Maintains workspace context across interactions
-
-### 📁 Smart File Operations
-- Read and analyze Swift, Objective-C, and project configuration files
-- Create and modify source files with proper syntax and imports
-- Intelligent file listing with type filtering and search
-
-### 🛠 Project Management
-- Access project targets, configurations, and schemes
-- Analyze source files for potential issues
-- Execute builds with specific configurations
-- Run and manage test suites
-
-## Getting Started
-
-### Prerequisites
-
-Before you begin, ensure you have:
-- Node.js (v14 or later)
-- Xcode Command Line Tools
-- TypeScript
-- Claude Desktop with MCP support
-
-### Quick Setup
-
-1. **Install the Server**:
+1. Clone the repository:
    ```bash
-   # Clone the repository
-   git clone [repository-url]
-   cd xcode-server
+   git clone https://github.com/yourusername/xcode-mcp-server.git
+   cd xcode-mcp-server
+   ```
 
-   # Install dependencies
+2. Install dependencies:
+   ```bash
    npm install
+   ```
 
-   # Build the project
+3. Set up environment variables:
+   ```bash
+   cp .env.example .env
+   ```
+   Then edit `.env` and set `PROJECTS_BASE_DIR` to the path of your Xcode projects directory.
+
+4. Build the project:
+   ```bash
    npm run build
    ```
 
-2. **Configure Claude Desktop**:
-   Add this to your Claude Desktop config file (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+## Usage
 
+### Running with Claude Desktop
+
+1. Add the server to your Claude Desktop configuration at `~/Library/Application Support/Claude/claude_desktop_config.json`:
    ```json
    {
      "mcpServers": {
-       "xcode-server": {
+       "xcode": {
          "command": "node",
          "args": [
-           "/path/to/xcode-server/build/index.js"
+           "/absolute/path/to/xcode-mcp-server/build/index.js"
          ],
          "env": {
            "PROJECTS_BASE_DIR": "/path/to/your/xcode/projects"
@@ -88,68 +78,93 @@ Before you begin, ensure you have:
    }
    ```
 
-   Replace the paths with your actual installation and projects directory.
+   > **Note**: Replace `/path/to/your/xcode/projects` with the actual path to your Xcode projects directory. This helps the server automatically detect and manage your Xcode projects.
 
-## Working with the Server
+2. Restart Claude Desktop
+3. Look for the hammer icon to access Xcode tools
 
-The server provides a natural interface for Claude to assist with your Xcode development. Here are some ways you can interact:
+### Running with MCP Inspector
 
-### Project Navigation
-Ask Claude to:
-- "Set my Xcode projects directory to `/Users/username/Documents/XcodeProjects`"
-- "What's my current active project?"
-- "Switch to the MyApp.xcodeproj project"
-- "Show me all Swift files in the project"
+For development and testing, use the MCP Inspector:
 
-### Code Creation & Modification
-Get help with:
-- "Create a new view called ProfileView with a preview provider"
-- "Add a @Published email property to UserModel.swift"
-- "Set up a modern async/await networking layer"
-- "Implement Core Data models with SwiftUI bindings"
+```bash
+npx @modelcontextprotocol/inspector node build/index.js
+```
 
-### Project Analysis & Building
-Let Claude assist with:
-- "Analyze NetworkManager.swift for potential issues"
-- "Build the project in Debug configuration"
-- "Run the unit tests for the UserModel module"
-- "What build schemes are available?"
+## Available Tools
 
-## Development and Debugging
+### Project Management
+- `set_projects_base_dir` - Set the base directory for Xcode projects
+- `set_project_path` - Set the active Xcode project
+- `get_active_project` - Get information about the current project
 
-### Building the Project
+### File Operations
+- `read_file` - Read contents of project files
+- `write_file` - Write or update project files
+- `list_project_files` - List all files in the project
+
+### Build and Analysis
+- `analyze_file` - Run static analysis on source files
+- `build_project` - Build the project with specified configuration
+- `run_tests` - Execute project tests
+
+### Xcode Tools
+- `run_xcrun` - Execute Xcode command-line tools
+- `compile_asset_catalog` - Compile asset catalogs
+- `swift_package_update` - Update Swift package dependencies
+
+### Simulator Management
+- `list_simulators` - Get available iOS simulators
+- `boot_simulator` - Start a simulator by UDID
+- `shutdown_simulator` - Stop a running simulator
+
+### Debugging and Profiling
+- `run_lldb` - Launch the LLDB debugger
+- `trace_app` - Capture app performance traces
+
+## Environment Variables
+
+- `PROJECTS_BASE_DIR` - Set the default directory for Xcode projects
+
+## Development
+
+### Prerequisites
+- Node.js 16 or later
+- Xcode and Xcode Command Line Tools
+- macOS (required for Xcode integration)
+
+### Building
 ```bash
 npm run build
 ```
 
-### Running Tests
+### Testing with Inspector
 ```bash
-npm test
+npx @modelcontextprotocol/inspector node build/index.js
 ```
 
-### Troubleshooting
-The server provides detailed logging through stderr. Common issues and their solutions:
+## Error Handling
 
-1. **Project Detection Issues**
-   - Verify your projects directory path
-   - Ensure Xcode Command Line Tools are installed
-   - Check file permissions
-
-2. **Build Problems**
-   - Validate Xcode installation
-   - Check project configurations
-   - Review build settings
+The server handles various error cases gracefully:
+- No active Xcode project (server runs in limited mode)
+- Invalid project paths
+- File access permissions
+- Build and test failures
 
 ## Contributing
 
-We welcome contributions! Whether it's:
-- 🐛 Bug fixes
-- ✨ New features
-- 📚 Documentation improvements
-- 🧪 Additional tests
-
-Feel free to submit a Pull Request.
+1. Fork the repository
+2. Create a feature branch
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- Built with the Model Context Protocol SDK
+- Integrates with Xcode and iOS development tools
+- Inspired by the need for AI-assisted iOS development
