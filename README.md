@@ -6,34 +6,49 @@ A Model Context Protocol (MCP) server that provides Xcode integration capabiliti
 
 ## Use Cases
 
-### Automated Project Setup and Configuration
-- Set up a new iOS project with standard configurations and dependencies
-- Configure build settings across multiple targets
-- Manage development, staging, and production schemes automatically
+Here are examples of natural language instructions you can give to AI assistants using this server:
 
-### Intelligent Code Analysis and Refactoring
-- Analyze Swift code for potential memory leaks or retain cycles
-- Identify and refactor deprecated API usage
-- Detect unused imports and code cleanup opportunities
-- Generate unit tests based on implementation
+### Project Setup and Analysis
+- "Set my projects directory to ~/Projects/iOS"
+- "What are all the build configurations and schemes in my current project?"
+- "Show me all Swift files in the project that might have memory leaks"
+- "List all the targets in my project and their dependencies"
+- "Check if there are any unused assets in my asset catalog"
 
-### Build and Testing Automation
-- Run specific test suites before committing changes
-- Automate build process across different configurations
-- Generate test reports and analyze coverage
-- Debug failing tests with detailed logs
+### Build and Test Management
+- "Build my project using the Debug configuration and MyApp scheme"
+- "Run all unit tests in the Authentication module"
+- "Execute the UI test plan for the checkout flow"
+- "Build the project for release and show me any warnings"
+- "Run the static analyzer on the NetworkManager class"
 
-### iOS Simulator Management
-- Create and manage simulator configurations for different iOS versions
-- Automate app testing across multiple device types
-- Record and analyze app performance on different devices
-- Capture screenshots and recordings for documentation
+### Simulator and Device Testing
+- "Show me all available iOS 17 simulators"
+- "Boot up an iPhone 15 Pro simulator for testing"
+- "Capture a 30-second performance trace while running my app"
+- "Shut down all running simulators"
+- "Launch my app in the simulator and start the debugger"
 
-### Asset and Resource Management
-- Optimize and compile asset catalogs
-- Manage localization files and strings
-- Update app icons and launch screens
-- Handle resource management for multiple targets
+### File Operations and Code Management
+- "Show me the contents of AppDelegate.swift"
+- "Update the app's Info.plist with new privacy descriptions"
+- "Create a new Swift file for a UserProfile model"
+- "Find all files containing API endpoint definitions"
+- "Update the build number in all target plists"
+
+### Development Workflow
+- "Update all Swift package dependencies to their latest versions"
+- "Compile the asset catalog and optimize all images"
+- "Start a debugging session for the current build"
+- "Show me the build settings for the Release configuration"
+- "Generate a performance report for the last test run"
+
+### Common Troubleshooting
+- "Why did my last build fail? Show me the error logs"
+- "Check if all required certificates are properly configured"
+- "Verify that all required simulator runtimes are installed"
+- "Show me any conflicts in the project.pbxproj file"
+- "List any missing file references in the project"
 
 ## Features
 
