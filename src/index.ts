@@ -1,15 +1,10 @@
-import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { 
-  CallToolRequestSchema, 
-  ListToolsRequestSchema,
-  ListResourcesRequestSchema,
-  ReadResourceRequestSchema
-} from "@modelcontextprotocol/sdk/types.js";
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import * as fs from 'fs/promises';
-import * as path from 'path';
+import { z } from "zod";
+import { exec } from "child_process";
+import { promisify } from "util";
+import * as fs from "fs/promises";
+import * as path from "path";
 
 const execAsync = promisify(exec);
 
@@ -22,380 +17,437 @@ interface ServerConfig {
   projectsBaseDir?: string;
 }
 
-interface GetActiveProjectArgs {}
-
-interface ReadFileArgs {
-  filePath: string;
+interface ProjectInfo {
+  path: string;
+  targets: string[];
+  configurations: string[];
+  schemes: string[];
 }
 
-interface WriteFileArgs {
-  filePath: string;
-  content: string;
-  createIfMissing?: boolean;
-}
-
-interface ListProjectFilesArgs {
-  projectPath: string;
-  fileType?: string;
-}
-
-interface AnalyzeFileArgs {
-  filePath: string;
-}
-
-interface BuildProjectArgs {
-  configuration: string;
-  scheme: string;
-}
-
-interface RunTestsArgs {
-  testPlan?: string;
-}
-
-interface SetProjectPathArgs {
-  projectPath: string;
+interface FileContent {
+  type: string;
+  text: string;
+  mimeType?: string;
+  metadata?: {
+    lastModified: Date;
+    size: number;
+  };
 }
 
 class XcodeServer {
-  private server: Server;
-  private fileWatchers: Map<string, any> = new Map();
-  private projectFiles: Map<string, string[]> = new Map();
+  private server: McpServer;
   private config: ServerConfig = {};
   private activeProject: {
     path: string;
     workspace?: string;
     name: string;
   } | null = null;
+  private projectFiles: Map<string, string[]> = new Map();
 
   constructor(config: ServerConfig = {}) {
-    // Read projects base directory from environment variable
     if (process.env.PROJECTS_BASE_DIR) {
       this.config.projectsBaseDir = process.env.PROJECTS_BASE_DIR;
-      console.error(`Using projects base directory from environment: ${this.config.projectsBaseDir}`);
+      console.error(`Using projects base directory from env: ${this.config.projectsBaseDir}`);
     }
-    
-    // Allow config to override environment variable
     this.config = { ...this.config, ...config };
 
-    this.server = new Server(
+    // Create the MCP server using the latest SDK conventions.
+    this.server = new McpServer({
+      name: "xcode-server",
+      version: "1.0.0"
+    }, {
+      capabilities: {
+        tools: {}
+      }
+    });
+
+    this.registerTools();
+    this.registerResources();
+
+    // Attempt to auto-detect an active project.
+    this.detectActiveProject().catch((error) => {
+      console.error("Failed to detect active project:", error.message);
+    });
+  }
+
+  private registerTools() {
+    // Register "set_projects_base_dir"
+    this.server.tool(
+      "set_projects_base_dir",
+      "Sets the base directory where your Xcode projects are stored.",
       {
-        name: "xcode-server",
-        version: "1.0.0",
+        baseDir: z.string().describe("Absolute path to the directory containing your Xcode projects.")
       },
-      {
-        capabilities: {
-          tools: {},
-          resources: {}
-        },
+      async ({ baseDir }, _extra) => {
+        const stats = await fs.stat(baseDir);
+        if (!stats.isDirectory()) {
+          throw new Error("Provided baseDir is not a directory");
+        }
+        this.config.projectsBaseDir = baseDir;
+        await this.detectActiveProject().catch(console.error);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Projects base directory set to: ${baseDir}`
+          }]
+        };
       }
     );
 
-    // Initialize handlers first so we can handle requests even without an active project
-    this.initializeHandlers();
-    
-    // Then try to detect the project
-    this.detectActiveProject()
-      .catch(error => {
-        console.error("Failed to detect active project:", error.message);
-        // Project will remain null until explicitly set via API
-      });
+    // Register "set_project_path"
+    this.server.tool(
+      "set_project_path",
+      "Sets the active Xcode project by specifying the path to its .xcodeproj directory.",
+      {
+        projectPath: z.string().describe("Path to the .xcodeproj directory for the desired project.")
+      },
+      async ({ projectPath }, _extra) => {
+        const stats = await fs.stat(projectPath);
+        if (!stats.isDirectory() || !projectPath.endsWith(".xcodeproj")) {
+          throw new Error("Invalid project path; must be a .xcodeproj directory");
+        }
+        this.activeProject = {
+          path: projectPath,
+          name: path.basename(projectPath, ".xcodeproj")
+        };
+        return {
+          content: [{
+            type: "text",
+            text: `Active project set to: ${projectPath}`
+          }]
+        };
+      }
+    );
+
+    // Register "get_active_project"
+    this.server.tool(
+      "get_active_project",
+      "Retrieves detailed information about the currently active Xcode project.",
+      {},
+      async () => {
+        if (!this.activeProject) {
+          await this.detectActiveProject();
+        }
+        if (!this.activeProject) {
+          return { 
+            content: [{ 
+              type: "text" as const, 
+              text: "No active Xcode project detected." 
+            }] 
+          };
+        }
+        const info = await this.getProjectInfo(this.activeProject.path);
+        return { 
+          content: [{ 
+            type: "text" as const, 
+            text: JSON.stringify({ ...this.activeProject, ...info }, null, 2) 
+          }] 
+        };
+      }
+    );
+
+    // Register "read_file"
+    this.server.tool(
+      "read_file",
+      "Reads the contents of a file within the active Xcode project.",
+      {
+        filePath: z.string().describe("Relative or absolute path to the file within the active project.")
+      },
+      async ({ filePath }) => {
+        const result = await this.readProjectFile(filePath);
+        const fileContent = result.content[0];
+        return {
+          content: [{
+            type: "text" as const,
+            text: fileContent.text,
+            mimeType: fileContent.mimeType
+          }]
+        };
+      }
+    );
+
+    // Register "write_file"
+    this.server.tool(
+      "write_file",
+      "Writes or updates the content of a file in the active Xcode project.",
+      {
+        filePath: z.string().describe("Relative or absolute path to the file to update or create."),
+        content: z.string().describe("The content to be written to the file."),
+        createIfMissing: z.boolean().optional().describe("If true, creates the file if it doesn't exist.")
+      },
+      async ({ filePath, content, createIfMissing }) => {
+        await this.writeProjectFile(filePath, content, createIfMissing);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Successfully wrote ${filePath}`
+          }]
+        };
+      }
+    );
+
+    // Register "list_project_files"
+    this.server.tool(
+      "list_project_files",
+      "Lists all files within an Xcode project.",
+      {
+        projectPath: z.string().describe("Path to the .xcodeproj directory of the project."),
+        fileType: z.string().optional().describe("Optional file extension filter.")
+      },
+      async ({ projectPath, fileType }) => {
+        const result = await this.listProjectFiles(projectPath, fileType);
+        return {
+          content: [{
+            type: "text" as const,
+            text: result.content[0].text
+          }]
+        };
+      }
+    );
+
+    // Register "analyze_file"
+    this.server.tool(
+      "analyze_file",
+      "Analyzes a source file for potential issues using Xcode's static analyzer.",
+      {
+        filePath: z.string().describe("Path to the source file to analyze.")
+      },
+      async ({ filePath }) => {
+        const result = await this.analyzeFile(filePath);
+        return {
+          content: [{
+            type: "text" as const,
+            text: result.content[0].text
+          }]
+        };
+      }
+    );
+
+    // Register "build_project"
+    this.server.tool(
+      "build_project",
+      "Builds the active Xcode project using the specified configuration and scheme.",
+      {
+        configuration: z.string().describe("Build configuration to use."),
+        scheme: z.string().describe("Name of the build scheme to be built.")
+      },
+      async ({ configuration, scheme }) => {
+        const result = await this.buildProject(configuration, scheme);
+        return {
+          content: [{
+            type: "text" as const,
+            text: result.content[0].text
+          }]
+        };
+      }
+    );
+
+    // Register "run_tests"
+    this.server.tool(
+      "run_tests",
+      "Executes tests for the active Xcode project.",
+      {
+        testPlan: z.string().optional().describe("Optional name of the test plan to run.")
+      },
+      async ({ testPlan }) => {
+        const result = await this.runTests(testPlan);
+        return {
+          content: [{
+            type: "text" as const,
+            text: result.content[0].text
+          }]
+        };
+      }
+    );
+
+    // Register "run_xcrun"
+    this.server.tool(
+      "run_xcrun",
+      "Executes a specified Xcode tool via 'xcrun'.",
+      {
+        tool: z.string().describe("Name of the Xcode tool to execute."),
+        arguments: z.string().optional().describe("Optional additional arguments to pass to the specified tool.")
+      },
+      async ({ tool, arguments: args }) => {
+        const { stdout, stderr } = await execAsync(`xcrun ${tool} ${args || ""}`);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `xcrun Output:\n${stdout}\n${stderr}`
+          }]
+        };
+      }
+    );
+
+    // Register "list_simulators"
+    this.server.tool(
+      "list_simulators",
+      "Lists all available iOS simulators with their details by invoking 'xcrun simctl list --json'.",
+      {},
+      async () => {
+        const { stdout, stderr } = await execAsync("xcrun simctl list --json");
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Simulators:\n${stdout}\n${stderr}`
+          }]
+        };
+      }
+    );
+
+    // Register "boot_simulator"
+    this.server.tool(
+      "boot_simulator",
+      "Boots an iOS simulator identified by its UDID.",
+      {
+        udid: z.string().describe("The UDID of the simulator to boot.")
+      },
+      async ({ udid }) => {
+        const { stdout, stderr } = await execAsync(`xcrun simctl boot "${udid}"`);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Boot Simulator Output:\n${stdout}\n${stderr}`
+          }]
+        };
+      }
+    );
+
+    // Register "shutdown_simulator"
+    this.server.tool(
+      "shutdown_simulator",
+      "Shuts down an active iOS simulator using its UDID.",
+      {
+        udid: z.string().describe("The UDID of the simulator to shutdown.")
+      },
+      async ({ udid }) => {
+        const { stdout, stderr } = await execAsync(`xcrun simctl shutdown "${udid}"`);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Shutdown Simulator Output:\n${stdout}\n${stderr}`
+          }]
+        };
+      }
+    );
+
+    // Register "compile_asset_catalog"
+    this.server.tool(
+      "compile_asset_catalog",
+      "Compiles an asset catalog using 'actool'.",
+      {
+        catalogPath: z.string().describe("Path to the asset catalog."),
+        outputDir: z.string().describe("Directory where the compiled assets should be saved.")
+      },
+      async ({ catalogPath, outputDir }) => {
+        const { stdout, stderr } = await execAsync(`xcrun actool "${catalogPath}" --output-format human-readable-text --notices --warnings --export-dependency-info "${outputDir}/assetcatalog_dependencies.txt" --output-partial-info-plist "${outputDir}/assetcatalog_generated_info.plist" --app-icon AppIcon --enable-on-demand-resources YES --target-device iphone --target-device ipad --minimum-deployment-target 11.0 --platform iphoneos --product-type com.apple.product-type.application --compile "${outputDir}"`);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Asset Catalog Compilation Output:\n${stdout}\n${stderr}`
+          }]
+        };
+      }
+    );
+
+    // Register "run_lldb"
+    this.server.tool(
+      "run_lldb",
+      "Launches the LLDB debugger with custom arguments.",
+      {
+        lldbArgs: z.string().optional().describe("Optional LLDB arguments.")
+      },
+      async ({ lldbArgs }) => {
+        const { stdout, stderr } = await execAsync(`lldb ${lldbArgs || ""}`);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `LLDB Output:\n${stdout}\n${stderr}`
+          }]
+        };
+      }
+    );
+
+    // Register "trace_app"
+    this.server.tool(
+      "trace_app",
+      "Captures a performance trace of an application using 'xctrace'.",
+      {
+        appPath: z.string().describe("Path to the application binary to trace."),
+        duration: z.number().optional().describe("Duration (in seconds) for the trace.")
+      },
+      async ({ appPath, duration }) => {
+        const durationArg = duration ? `--duration ${duration}` : "";
+        const { stdout, stderr } = await execAsync(`xctrace record --target "${appPath}" ${durationArg} --template 'Time Profiler'`);
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Trace Output:\n${stdout}\n${stderr}`
+          }]
+        };
+      }
+    );
+
+    // Register "swift_package_update"
+    this.server.tool(
+      "swift_package_update",
+      "Updates the dependencies of your Swift project using Swift Package Manager by invoking 'swift package update'.",
+      {},
+      async () => {
+        const { stdout, stderr } = await execAsync("swift package update");
+        return {
+          content: [{
+            type: "text" as const,
+            text: `Swift Package Update Output:\n${stdout}\n${stderr}`
+          }]
+        };
+      }
+    );
   }
 
-  private async initializeHandlers() {
-    // Set up tool handlers
-    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: [
-        {
-          name: "set_projects_base_dir",
-          description: "Set the base directory where Xcode projects are stored",
-          inputSchema: {
-            type: "object",
-            properties: {
-              baseDir: {
-                type: "string",
-                description: "Absolute path to the directory containing Xcode projects"
-              }
-            },
-            required: ["baseDir"]
-          }
-        },
-        {
-          name: "set_project_path",
-          description: "Explicitly set the path to the Xcode project to work with",
-          inputSchema: {
-            type: "object",
-            properties: {
-              projectPath: {
-                type: "string",
-                description: "Path to the .xcodeproj directory"
-              }
-            },
-            required: ["projectPath"]
-          }
-        },
-        {
-          name: "get_active_project",
-          description: "Get information about the currently active Xcode project",
-          inputSchema: {
-            type: "object",
-            properties: {}
-          }
-        },
-
-        {
-          name: "read_file",
-          description: "Read contents of a file in the Xcode project",
-          inputSchema: {
-            type: "object",
-            properties: {
-              filePath: {
-                type: "string",
-                description: "Path to the file within the project"
-              }
-            },
-            required: ["filePath"]
-          }
-        },
-        {
-          name: "write_file",
-          description: "Write or update contents of a file in the Xcode project",
-          inputSchema: {
-            type: "object",
-            properties: {
-              filePath: {
-                type: "string",
-                description: "Path to the file within the project"
-              },
-              content: {
-                type: "string",
-                description: "Content to write to the file"
-              },
-              createIfMissing: {
-                type: "boolean",
-                description: "Whether to create the file if it doesn't exist"
-              }
-            },
-            required: ["filePath", "content"]
-          }
-        },
-        {
-          name: "list_project_files",
-          description: "List all files in an Xcode project",
-          inputSchema: {
-            type: "object",
-            properties: {
-              projectPath: {
-                type: "string",
-                description: "Path to the .xcodeproj directory"
-              },
-              fileType: {
-                type: "string",
-                description: "Filter by file extension (e.g., 'swift', 'm')"
-              }
-            },
-            required: ["projectPath"]
-          }
-        },
-        {
-          name: "analyze_file",
-          description: "Analyze source file for issues and suggestions",
-          inputSchema: {
-            type: "object",
-            properties: {
-              filePath: {
-                type: "string",
-                description: "Path to the source file"
-              }
-            },
-            required: ["filePath"]
-          }
-        },
-        {
-          name: "build_project",
-          description: "Build the current Xcode project",
-          inputSchema: {
-            type: "object",
-            properties: {
-              configuration: {
-                type: "string",
-                description: "Build configuration (Debug/Release)"
-              },
-              scheme: {
-                type: "string",
-                description: "Build scheme name"
-              }
-            },
-            required: ["configuration", "scheme"]
-          }
-        },
-        {
-          name: "run_tests",
-          description: "Run tests for the current Xcode project",
-          inputSchema: {
-            type: "object",
-            properties: {
-              testPlan: {
-                type: "string",
-                description: "Name of the test plan to run"
-              }
-            }
-          }
-        }
-      ]
-    }));
-
-    // Set up resource handlers
-    this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
-      const projects = await this.findXcodeProjects();
-      return {
-        resources: projects.map(project => ({
-          uri: `xcode://${encodeURIComponent(project.path)}`,
-          name: project.name,
-          mimeType: "application/x-xcode-project"
-        }))
-      };
-    });
-
-    // Handle reading project resources
-    this.server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
-      const uri = request.params.uri;
-      if (!uri.startsWith("xcode://")) {
-        throw new Error("Invalid Xcode resource URI");
+  private registerResources() {
+    // Resource to list available Xcode projects.
+    this.server.resource(
+      "xcode-projects",
+      new ResourceTemplate("xcode://projects", { list: undefined }),
+      async () => {
+        const projects = await this.findXcodeProjects();
+        return {
+          contents: projects.map(project => ({
+            uri: `xcode://projects/${encodeURIComponent(project.name)}`,
+            text: project.name,
+            mimeType: "application/x-xcode-project" as const
+          }))
+        };
       }
+    );
 
-      const projectPath = decodeURIComponent(uri.replace("xcode://", ""));
-      const projectInfo = await this.getProjectInfo(projectPath);
-
-      return {
-        contents: [{
-          uri,
-          mimeType: "application/json",
-          text: JSON.stringify(projectInfo, null, 2)
-        }]
-      };
-    });
-
-    // Handle tool execution
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: rawArgs } = request.params;
-
-      switch (name) {
-        case "set_projects_base_dir": {
-          const args = rawArgs as { baseDir: string };
-          if (!args?.baseDir) {
-            throw new Error('Invalid arguments: baseDir (string) is required');
-          }
-
-          // Validate that the directory exists
-          const stats = await fs.stat(args.baseDir);
-          if (!stats.isDirectory()) {
-            throw new Error('Invalid base directory path: must be a directory');
-          }
-
-          this.config.projectsBaseDir = args.baseDir;
-          
-          // Try to detect project again with new base directory
-          await this.detectActiveProject().catch(console.error);
-
-          return {
-            content: [{
-              type: "text",
-              text: `Successfully set projects base directory to: ${args.baseDir}`
-            }]
-          };
+    // Resource to get project details
+    this.server.resource(
+      "xcode-project",
+      new ResourceTemplate("xcode://projects/{name}", { list: undefined }),
+      async (uri, { name }) => {
+        const decodedName = decodeURIComponent(name as string);
+        const project = await this.findProjectByName(decodedName);
+        if (!project) {
+          throw new Error(`Project ${decodedName} not found`);
         }
-
-        case "set_project_path": {
-          const args = rawArgs as unknown as SetProjectPathArgs;
-          if (!args?.projectPath) {
-            throw new Error('Invalid arguments: projectPath (string) is required');
-          }
-          
-          // Validate that the path exists and is an Xcode project
-          const stats = await fs.stat(args.projectPath);
-          if (!stats.isDirectory() || !args.projectPath.endsWith('.xcodeproj')) {
-            throw new Error('Invalid project path: must be a .xcodeproj directory');
-          }
-
-          this.activeProject = {
-            path: args.projectPath,
-            name: path.basename(args.projectPath, '.xcodeproj')
-          };
-
-          return {
-            content: [{
-              type: "text",
-              text: `Successfully set active project to: ${args.projectPath}`
-            }]
-          };
-        }
-
-        case "get_active_project": {
-          const args = rawArgs as unknown as GetActiveProjectArgs;
-          return await this.getActiveProjectInfo();
-        }
-
-        case "read_file": {
-          const args = rawArgs as unknown as ReadFileArgs;
-          if (!args?.filePath) {
-            throw new Error('Invalid arguments: filePath (string) is required');
-          }
-          return await this.readProjectFile(args.filePath);
-        }
-
-        case "write_file": {
-          const args = rawArgs as unknown as WriteFileArgs;
-          if (!args?.filePath || !args?.content) {
-            throw new Error('Invalid arguments: filePath (string) and content (string) are required');
-          }
-          return await this.writeProjectFile(
-            args.filePath,
-            args.content,
-            args.createIfMissing
-          );
-        }
-
-        case "list_project_files": {
-          const args = rawArgs as unknown as ListProjectFilesArgs;
-          if (!args?.projectPath) {
-            throw new Error('Invalid arguments: projectPath (string) is required');
-          }
-          return await this.listProjectFiles(
-            args.projectPath,
-            args.fileType
-          );
-        }
-
-        case "analyze_file": {
-          const args = rawArgs as unknown as AnalyzeFileArgs;
-          if (!args?.filePath) {
-            throw new Error('Invalid arguments: filePath (string) is required');
-          }
-          return await this.analyzeFile(args.filePath);
-        }
-
-        case "build_project": {
-          const args = rawArgs as unknown as BuildProjectArgs;
-          if (!args?.configuration || !args?.scheme) {
-            throw new Error('Invalid arguments: configuration (string) and scheme (string) are required');
-          }
-          return await this.buildProject(args.configuration, args.scheme);
-        }
-
-        case "run_tests": {
-          const args = rawArgs as unknown as RunTestsArgs;
-          return await this.runTests(args?.testPlan);
-        }
-
-        default:
-          throw new Error(`Unknown tool: ${name}`);
+        return {
+          contents: [{
+            uri: uri.href,
+            text: JSON.stringify(project, null, 2),
+            mimeType: "application/json" as const
+          }]
+        };
       }
-    });
+    );
   }
+
+  // Helper methods
 
   private async detectActiveProject(): Promise<void> {
     try {
-      // First try to get the frontmost Xcode project using AppleScript
+      // Attempt to get the frontmost Xcode project via AppleScript.
       const { stdout: frontmostProject } = await execAsync(`
         osascript -e '
           tell application "Xcode"
@@ -405,15 +457,13 @@ class XcodeServer {
             end if
           end tell
         '
-      `).catch(() => ({ stdout: '' }));
-
+      `).catch(() => ({ stdout: "" }));
+      
       if (frontmostProject.trim()) {
         const projectPath = frontmostProject.trim();
-        // If we have a base directory set, validate the project is within it
         if (this.config.projectsBaseDir && !projectPath.startsWith(this.config.projectsBaseDir)) {
-          console.warn('Active Xcode project is outside the configured projects base directory');
+          console.warn("Active project is outside the configured base directory");
         }
-        
         this.activeProject = {
           path: projectPath,
           name: path.basename(projectPath, path.extname(projectPath))
@@ -421,42 +471,31 @@ class XcodeServer {
         return;
       }
 
-      // If AppleScript fails and we have a base directory, look for projects there
+      // Fallback: scan base directory if set.
       if (this.config.projectsBaseDir) {
         const projects = await this.findXcodeProjects();
         if (projects.length > 0) {
-          // Use the most recently modified project
           const projectStats = await Promise.all(
-            projects.map(async project => ({
+            projects.map(async (project) => ({
               project,
               stats: await fs.stat(project.path)
             }))
           );
-          
-          const mostRecent = projectStats.sort((a, b) => 
-            b.stats.mtime.getTime() - a.stats.mtime.getTime()
-          )[0];
-
+          const mostRecent = projectStats.sort((a, b) => b.stats.mtime.getTime() - a.stats.mtime.getTime())[0];
           this.activeProject = mostRecent.project;
           return;
         }
       }
 
-      // If still no project found, try xcode-select as last resort
-      const { stdout: developerDir } = await execAsync('xcode-select -p');
-      const { stdout: recentProjects } = await execAsync(
-        'defaults read com.apple.dt.Xcode IDERecentWorkspaceDocuments || true'
-      ).catch(() => ({ stdout: '' }));
-
+      // Further fallback: try reading recent projects from Xcode defaults.
+      const { stdout: recentProjects } = await execAsync('defaults read com.apple.dt.Xcode IDERecentWorkspaceDocuments || true').catch(() => ({ stdout: "" }));
       if (recentProjects) {
-        const projectMatch = recentProjects.match(/= \(\s*"([^"]+)"/);
+        const projectMatch = recentProjects.match(/= \\"([^"]+)"/);
         if (projectMatch) {
           const recentProject = projectMatch[1];
-          // If we have a base directory set, validate the project is within it
           if (this.config.projectsBaseDir && !recentProject.startsWith(this.config.projectsBaseDir)) {
-            console.warn('Recent Xcode project is outside the configured projects base directory');
+            console.warn("Recent project is outside the configured base directory");
           }
-          
           this.activeProject = {
             path: recentProject,
             name: path.basename(recentProject, path.extname(recentProject))
@@ -464,236 +503,137 @@ class XcodeServer {
           return;
         }
       }
-
-      throw new Error('No active Xcode project found. Please either open a project in Xcode, set the project path explicitly, or configure the projects base directory.');
+      throw new Error("No active Xcode project found. Please open a project in Xcode or set one explicitly.");
     } catch (error) {
-      console.error('Error detecting active project:', error);
+      console.error("Error detecting active project:", error);
       throw error;
     }
   }
 
   private async findXcodeProjects(): Promise<XcodeProject[]> {
     try {
-      let searchPath = '.';
+      let searchPath = ".";
       if (this.config.projectsBaseDir) {
         searchPath = this.config.projectsBaseDir;
       }
-
-      // Find .xcodeproj directories in the specified directory
       const { stdout } = await execAsync(`find "${searchPath}" -name "*.xcodeproj"`);
-      const projectPaths = stdout.split('\n').filter(Boolean);
-
-      return projectPaths.map(projectPath => ({
+      const projectPaths = stdout.split("\n").filter(Boolean);
+      return projectPaths.map((projectPath) => ({
         path: projectPath,
-        name: path.basename(projectPath, '.xcodeproj')
+        name: path.basename(projectPath, ".xcodeproj")
       }));
     } catch (error) {
-      console.error('Error finding Xcode projects:', error);
+      console.error("Error finding projects:", error);
       return [];
     }
   }
 
   private async getProjectInfo(projectPath: string) {
     try {
-      // Use xcodebuild to get project information
       const { stdout } = await execAsync(`xcodebuild -list -project "${projectPath}"`);
-      
-      // Parse the output to extract targets, configurations, and schemes
       const info = {
         path: projectPath,
         targets: [] as string[],
         configurations: [] as string[],
         schemes: [] as string[]
       };
-
-      let currentSection = '';
-      for (const line of stdout.split('\n')) {
-        if (line.includes('Targets:')) {
-          currentSection = 'targets';
-        } else if (line.includes('Build Configurations:')) {
-          currentSection = 'configurations';
-        } else if (line.includes('Schemes:')) {
-          currentSection = 'schemes';
-        } else if (line.trim() && !line.includes(':')) {
-          switch (currentSection) {
-            case 'targets':
-              info.targets.push(line.trim());
-              break;
-            case 'configurations':
-              info.configurations.push(line.trim());
-              break;
-            case 'schemes':
-              info.schemes.push(line.trim());
-              break;
-          }
+      let currentSection = "";
+      for (const line of stdout.split("\n")) {
+        if (line.includes("Targets:")) {
+          currentSection = "targets";
+        } else if (line.includes("Build Configurations:")) {
+          currentSection = "configurations";
+        } else if (line.includes("Schemes:")) {
+          currentSection = "schemes";
+        } else if (line.trim() && !line.includes(":")) {
+          if (currentSection === "targets") info.targets.push(line.trim());
+          else if (currentSection === "configurations") info.configurations.push(line.trim());
+          else if (currentSection === "schemes") info.schemes.push(line.trim());
         }
       }
-
       return info;
     } catch (error) {
-      console.error('Error getting project info:', error);
+      console.error("Error getting project info:", error);
       throw error;
     }
   }
 
   private async analyzeFile(filePath: string) {
     try {
-      // Read the file content
-      const content = await fs.readFile(filePath, 'utf-8');
-      
-      // Use xcodebuild to analyze the file
-      const { stdout } = await execAsync(
-        `xcodebuild analyze -quiet -file "${filePath}"`
-      );
-
-      return {
-        content: [{
-          type: "text",
-          text: `Analysis results for ${filePath}:\n${stdout}`
-        }]
-      };
+      const { stdout } = await execAsync(`xcodebuild analyze -quiet -file "${filePath}"`);
+      return { content: [{ type: "text", text: `Analysis for ${filePath}:\n${stdout}` }] };
     } catch (error) {
-      console.error('Error analyzing file:', error);
+      console.error("Error analyzing file:", error);
       throw error;
     }
   }
 
   private async buildProject(configuration: string, scheme: string) {
     try {
-      const { stdout, stderr } = await execAsync(
-        `xcodebuild -scheme "${scheme}" -configuration "${configuration}" build`
-      );
-
-      return {
-        content: [{
-          type: "text",
-          text: `Build results:\n${stdout}\n${stderr}`
-        }]
-      };
+      const { stdout, stderr } = await execAsync(`xcodebuild -scheme "${scheme}" -configuration "${configuration}" build`);
+      return { content: [{ type: "text", text: `Build results:\n${stdout}\n${stderr}` }] };
     } catch (error) {
-      console.error('Error building project:', error);
+      console.error("Error building project:", error);
       throw error;
     }
   }
 
   private async readProjectFile(filePath: string) {
     try {
-      if (!this.activeProject) {
-        throw new Error('No active project set. Please set a project path first.');
-      }
-
-      // Convert filePath to be relative to project root
+      if (!this.activeProject) throw new Error("No active project set.");
       const projectRoot = path.dirname(this.activeProject.path);
       const absolutePath = path.isAbsolute(filePath) ? filePath : path.join(projectRoot, filePath);
-
-      // Validate the file exists and is within project directory
-      if (!absolutePath.startsWith(projectRoot)) {
-        throw new Error('File must be within the active project directory');
-      }
-
-      // Read the file content
-      const content = await fs.readFile(absolutePath, 'utf-8');
-      
-      // Get file info
+      if (!absolutePath.startsWith(projectRoot)) throw new Error("File must be within the active project directory");
+      const content = await fs.readFile(absolutePath, "utf-8");
       const stats = await fs.stat(absolutePath);
-      const ext = path.extname(absolutePath);
-      
-      // Determine MIME type based on extension
-      const mimeType = this.getMimeTypeForExtension(ext);
-
+      const mimeType = this.getMimeTypeForExtension(path.extname(absolutePath));
       return {
         content: [{
           type: "text",
           text: content,
           mimeType,
-          metadata: {
-            lastModified: stats.mtime,
-            size: stats.size
-          }
+          metadata: { lastModified: stats.mtime, size: stats.size }
         }]
       };
     } catch (error) {
-      console.error('Error reading file:', error);
+      console.error("Error reading file:", error);
       throw error;
     }
   }
 
-  private async writeProjectFile(
-    filePath: string, 
-    content: string, 
-    createIfMissing: boolean = false
-  ) {
+  private async writeProjectFile(filePath: string, content: string, createIfMissing: boolean = false) {
     try {
-      if (!this.activeProject) {
-        throw new Error('No active project set. Please set a project path first.');
-      }
-
-      // Convert filePath to be relative to project root
+      if (!this.activeProject) throw new Error("No active project set.");
       const projectRoot = path.dirname(this.activeProject.path);
       const absolutePath = path.isAbsolute(filePath) ? filePath : path.join(projectRoot, filePath);
-
-      // Validate the file location is within project directory
-      if (!absolutePath.startsWith(projectRoot)) {
-        throw new Error('File must be within the active project directory');
-      }
-
-      const fileExists = await fs.access(absolutePath)
-        .then(() => true)
-        .catch(() => false);
-
-      if (!fileExists && !createIfMissing) {
-        throw new Error('File does not exist and createIfMissing is false');
-      }
-
-      // Create parent directories if they don't exist
+      if (!absolutePath.startsWith(projectRoot)) throw new Error("File must be within the active project directory");
+      const exists = await fs.access(absolutePath).then(() => true).catch(() => false);
+      if (!exists && !createIfMissing) throw new Error("File does not exist and createIfMissing is false");
       await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-
-      // Write the file
-      await fs.writeFile(absolutePath, content, 'utf-8');
-
-      // Update project references if needed
+      await fs.writeFile(absolutePath, content, "utf-8");
       await this.updateProjectReferences(projectRoot, absolutePath);
-
-      return {
-        content: [{
-          type: "text",
-          text: `Successfully wrote ${absolutePath}`
-        }]
-      };
+      return { content: [{ type: "text", text: `Successfully wrote ${absolutePath}` }] };
     } catch (error) {
-      console.error('Error writing file:', error);
+      console.error("Error writing file:", error);
       throw error;
     }
   }
 
   private async listProjectFiles(projectPath: string, fileType?: string) {
     try {
-      if (!this.activeProject) {
-        throw new Error('No active project set. Please set a project path first.');
-      }
-
+      if (!this.activeProject) throw new Error("No active project set.");
       const projectRoot = path.dirname(this.activeProject.path);
-      
-      // Get cached files or scan project
       let files = this.projectFiles.get(projectRoot);
       if (!files) {
         files = await this.scanProjectFiles(projectRoot);
         this.projectFiles.set(projectRoot, files);
       }
-
-      // Filter by file type if specified
       if (fileType) {
         files = files.filter(file => path.extname(file).slice(1) === fileType);
       }
-
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify(files, null, 2)
-        }]
-      };
+      return { content: [{ type: "text", text: JSON.stringify(files, null, 2) }] };
     } catch (error) {
-      console.error('Error listing project files:', error);
+      console.error("Error listing project files:", error);
       throw error;
     }
   }
@@ -701,139 +641,57 @@ class XcodeServer {
   private async scanProjectFiles(projectPath: string): Promise<string[]> {
     const projectRoot = path.dirname(projectPath);
     const result: string[] = [];
-
     async function scan(dir: string) {
       const entries = await fs.readdir(dir, { withFileTypes: true });
-      
       for (const entry of entries) {
         const fullPath = path.join(dir, entry.name);
-        
-        // Skip .xcodeproj directories and node_modules
-        if (entry.name === 'node_modules' || entry.name.endsWith('.xcodeproj')) {
-          continue;
-        }
-
-        if (entry.isDirectory()) {
-          await scan(fullPath);
-        } else {
-          result.push(fullPath);
-        }
+        if (entry.name === "node_modules" || entry.name.endsWith(".xcodeproj")) continue;
+        if (entry.isDirectory()) await scan(fullPath);
+        else result.push(fullPath);
       }
     }
-
     await scan(projectRoot);
     return result;
   }
 
-  private async validateProjectFile(filePath: string): Promise<void> {
-    const projectRoot = await this.findProjectRoot(filePath);
-    if (!projectRoot) {
-      throw new Error('File must be within an Xcode project directory');
-    }
-
-    const exists = await fs.access(filePath)
-      .then(() => true)
-      .catch(() => false);
-      
-    if (!exists) {
-      throw new Error('File does not exist');
-    }
-  }
-
-  private async getActiveProjectInfo() {
-    if (!this.activeProject) {
-      await this.detectActiveProject();
-    }
-
-    if (!this.activeProject) {
-      return {
-        content: [{
-          type: "text",
-          text: "No active Xcode project detected. Please open a project in Xcode."
-        }]
-      };
-    }
-
-    try {
-      const projectInfo = await this.getProjectInfo(this.activeProject.path);
-      return {
-        content: [{
-          type: "text",
-          text: JSON.stringify({
-            ...this.activeProject,
-            ...projectInfo
-          }, null, 2)
-        }]
-      };
-    } catch (error) {
-      console.error('Error getting active project info:', error);
-      throw error;
-    }
-  }
-
-  private async findProjectRoot(filePath: string): Promise<string | null> {
-    let currentDir = path.dirname(filePath);
-    
-    while (currentDir !== '/') {
-      const entries = await fs.readdir(currentDir);
-      if (entries.some(entry => entry.endsWith('.xcodeproj'))) {
-        return currentDir;
-      }
-      currentDir = path.dirname(currentDir);
-    }
-    
-    return null;
+  private async updateProjectReferences(projectRoot: string, filePath: string) {
+    const projectDir = await fs.readdir(projectRoot)
+      .then(entries => entries.find(e => e.endsWith(".xcodeproj")))
+      .then(projDir => path.join(projectRoot, projDir!, "project.pbxproj"));
+    if (!projectDir) throw new Error("Could not find project.pbxproj");
+    // TODO: Use a dedicated library to update the pbxproj file if needed.
+    console.error("New file created. You may need to add it to the project in Xcode manually.");
   }
 
   private getMimeTypeForExtension(ext: string): string {
     const mimeTypes: Record<string, string> = {
-      '.swift': 'text/x-swift',
-      '.m': 'text/x-objective-c',
-      '.h': 'text/x-c',
-      '.c': 'text/x-c',
-      '.cpp': 'text/x-c++',
-      '.json': 'application/json',
-      '.plist': 'application/x-plist',
-      '.storyboard': 'application/x-xcode-storyboard',
-      '.xib': 'application/x-xcode-xib'
+      ".swift": "text/x-swift",
+      ".m": "text/x-objective-c",
+      ".h": "text/x-c",
+      ".c": "text/x-c",
+      ".cpp": "text/x-c++",
+      ".json": "application/json",
+      ".plist": "application/x-plist",
+      ".storyboard": "application/x-xcode-storyboard",
+      ".xib": "application/x-xcode-xib"
     };
-    
-    return mimeTypes[ext] || 'text/plain';
-  }
-
-  private async updateProjectReferences(projectRoot: string, filePath: string) {
-    // Get the project.pbxproj path
-    const projectFile = await fs.readdir(projectRoot)
-      .then(entries => entries.find(e => e.endsWith('.xcodeproj')))
-      .then(projDir => path.join(projectRoot, projDir!, 'project.pbxproj'));
-
-    if (!projectFile) {
-      throw new Error('Could not find project.pbxproj');
-    }
-
-    // TODO: Implement pbxproj parsing and updating
-    // This would require handling the project file format to add new files
-    // For now, we'll just log that manual project file addition may be needed
-    console.error('New file created. You may need to add it to the project in Xcode.');
+    return mimeTypes[ext] || "text/plain";
   }
 
   private async runTests(testPlan?: string) {
     try {
-      const testPlanArg = testPlan ? `-testPlan "${testPlan}"` : '';
-      const { stdout, stderr } = await execAsync(
-        `xcodebuild test ${testPlanArg}`
-      );
-
-      return {
-        content: [{
-          type: "text",
-          text: `Test results:\n${stdout}\n${stderr}`
-        }]
-      };
+      const arg = testPlan ? `-testPlan "${testPlan}"` : "";
+      const { stdout, stderr } = await execAsync(`xcodebuild test ${arg}`);
+      return { content: [{ type: "text", text: `Test results:\n${stdout}\n${stderr}` }] };
     } catch (error) {
-      console.error('Error running tests:', error);
+      console.error("Error running tests:", error);
       throw error;
     }
+  }
+
+  private async findProjectByName(name: string): Promise<XcodeProject | undefined> {
+    const projects = await this.findXcodeProjects();
+    return projects.find(p => p.name === name);
   }
 
   public async start() {
@@ -844,9 +702,8 @@ class XcodeServer {
   }
 }
 
-// Start the server
 const server = new XcodeServer();
-server.start().catch(error => {
+server.start().catch((error) => {
   console.error("Failed to start server:", error);
   process.exit(1);
 });
