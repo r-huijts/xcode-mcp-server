@@ -53,32 +53,8 @@ Here are examples of natural language instructions you can give to AI assistants
 
 ## Installation
 
-You can install the Xcode MCP Server in three ways:
 
-### 1. Using Claude Desktop with NPM Package
-
-The simplest way is to install and use the package directly through npm. Update your Claude configuration file (`~/Library/Application Support/Claude/claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "xcode": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "xcode-mcp-server"
-      ],
-      "env": {
-        "PROJECTS_BASE_DIR": "/path/to/your/xcode/projects"
-      }
-    }
-  }
-}
-```
-
-### 2. From Source
-
-For development or customization:
+### 1. From Source
 
 1. Clone this repository:
    ```bash
