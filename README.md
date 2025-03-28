@@ -4,6 +4,37 @@
 
 A Model Context Protocol (MCP) server that provides Xcode integration capabilities for Large Language Models (LLMs). This server enables AI assistants to interact with Xcode projects, manage iOS simulators, and perform various Xcode-related tasks.
 
+## Use Cases
+
+### Automated Project Setup and Configuration
+- Set up a new iOS project with standard configurations and dependencies
+- Configure build settings across multiple targets
+- Manage development, staging, and production schemes automatically
+
+### Intelligent Code Analysis and Refactoring
+- Analyze Swift code for potential memory leaks or retain cycles
+- Identify and refactor deprecated API usage
+- Detect unused imports and code cleanup opportunities
+- Generate unit tests based on implementation
+
+### Build and Testing Automation
+- Run specific test suites before committing changes
+- Automate build process across different configurations
+- Generate test reports and analyze coverage
+- Debug failing tests with detailed logs
+
+### iOS Simulator Management
+- Create and manage simulator configurations for different iOS versions
+- Automate app testing across multiple device types
+- Record and analyze app performance on different devices
+- Capture screenshots and recordings for documentation
+
+### Asset and Resource Management
+- Optimize and compile asset catalogs
+- Manage localization files and strings
+- Update app icons and launch screens
+- Handle resource management for multiple targets
+
 ## Features
 
 ### Project Management
