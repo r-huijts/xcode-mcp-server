@@ -50,40 +50,12 @@ Here are examples of natural language instructions you can give to AI assistants
 - "Show me any conflicts in the project.pbxproj file"
 - "List any missing file references in the project"
 
-## Features
-
-### Project Management
-- 🔍 Auto-detect active Xcode projects
-- 📁 Set custom project directories
-- 📊 Get detailed project information (targets, configurations, schemes)
-
-### File Operations
-- 📖 Read project files with proper MIME type detection
-- ✏️ Write and update files within projects
-- 📋 List all files in a project with optional file type filtering
-
-### Build and Analysis
-- 🔨 Build projects with specific configurations and schemes
-- 🧪 Run project tests with optional test plans
-- 🔍 Analyze source files using Xcode's static analyzer
-
-### Simulator Management
-- 📱 List available iOS simulators
-- ▶️ Boot simulators by UDID
-- ⏹️ Shutdown active simulators
-
-### Development Tools
-- 🛠️ Execute Xcode tools via xcrun
-- 📦 Compile asset catalogs
-- 🔄 Update Swift package dependencies
-- 🐛 Launch LLDB debugger
-- 📊 Capture performance traces with xctrace
 
 ## Installation
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/xcode-mcp-server.git
+   git clone https://github.com/r-huijts/xcode-mcp-server.git
    cd xcode-mcp-server
    ```
 
