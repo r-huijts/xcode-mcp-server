@@ -53,7 +53,34 @@ Here are examples of natural language instructions you can give to AI assistants
 
 ## Installation
 
-1. Clone the repository:
+You can install the Xcode MCP Server in three ways:
+
+### 1. Using Claude Desktop with NPM Package
+
+The simplest way is to install and use the package directly through npm. Update your Claude configuration file (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "xcode": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "xcode-mcp-server"
+      ],
+      "env": {
+        "PROJECTS_BASE_DIR": "/path/to/your/xcode/projects"
+      }
+    }
+  }
+}
+```
+
+### 2. From Source
+
+For development or customization:
+
+1. Clone this repository:
    ```bash
    git clone https://github.com/r-huijts/xcode-mcp-server.git
    cd xcode-mcp-server
@@ -68,46 +95,34 @@ Here are examples of natural language instructions you can give to AI assistants
    ```bash
    cp .env.example .env
    ```
-   Then edit `.env` and set `PROJECTS_BASE_DIR` to the path of your Xcode projects directory.
+   Edit `.env` and set `PROJECTS_BASE_DIR` to your Xcode projects directory.
 
 4. Build the project:
    ```bash
    npm run build
    ```
 
-## Usage
+Then update your Claude configuration:
 
-### Running with Claude Desktop
-
-1. Add the server to your Claude Desktop configuration at `~/Library/Application Support/Claude/claude_desktop_config.json`:
-   ```json
-   {
-     "mcpServers": {
-       "xcode": {
-         "command": "node",
-         "args": [
-           "/absolute/path/to/xcode-mcp-server/build/index.js"
-         ],
-         "env": {
-           "PROJECTS_BASE_DIR": "/path/to/your/xcode/projects"
-         }
-       }
-     }
-   }
-   ```
-
-   > **Note**: Replace `/path/to/your/xcode/projects` with the actual path to your Xcode projects directory. This helps the server automatically detect and manage your Xcode projects.
-
-2. Restart Claude Desktop
-3. Look for the hammer icon to access Xcode tools
-
-### Running with MCP Inspector
-
-For development and testing, use the MCP Inspector:
-
-```bash
-npx @modelcontextprotocol/inspector node build/index.js
+```json
+{
+  "mcpServers": {
+    "xcode": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/xcode-mcp-server/dist/index.js"
+      ],
+      "env": {
+        "PROJECTS_BASE_DIR": "/path/to/your/xcode/projects"
+      }
+    }
+  }
+}
 ```
+
+> **Note**: Replace `/path/to/your/xcode/projects` with the actual path to your Xcode projects directory.
+
+After updating the configuration, restart Claude Desktop for the changes to take effect.
 
 ## Available Tools
 
@@ -158,7 +173,7 @@ npm run build
 
 ### Testing with Inspector
 ```bash
-npx @modelcontextprotocol/inspector node build/index.js
+npx @modelcontextprotocol/inspector node dist/index.js
 ```
 
 ## Error Handling
