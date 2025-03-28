@@ -59,7 +59,7 @@ class XcodeServer {
     // Create the MCP server
     this.server = new McpServer({
       name: "xcode-server",
-      version: "1.0.0"
+      version: "2.0.0"
     }, {
       capabilities: {
         tools: {}
