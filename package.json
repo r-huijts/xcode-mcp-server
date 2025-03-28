@@ -1,20 +1,46 @@
 {
-  "name": "xcode-server",
-  "version": "0.1.0",
-  "description": "A Model Context Protocol server",
-  "private": true,
+  "name": "xcode-mcp-server",
+  "version": "1.0.0",
+  "description": "An MCP server for Xcode integration, enabling AI assistants to interact with Xcode projects",
   "type": "module",
   "bin": {
-    "xcode-server": "./build/index.js"
+    "xcode-server": "./dist/index.js"
   },
   "files": [
-    "build"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
-    "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+    "build": "tsc && node -e \"require('fs').chmodSync('dist/index.js', '755')\"",
     "prepare": "npm run build",
     "watch": "tsc --watch",
-    "inspector": "npx @modelcontextprotocol/inspector build/index.js"
+    "inspector": "npx @modelcontextprotocol/inspector dist/index.js",
+    "clean": "rm -rf dist",
+    "prebuild": "npm run clean"
+  },
+  "keywords": [
+    "xcode",
+    "mcp",
+    "ai",
+    "llm",
+    "ios",
+    "development",
+    "claude",
+    "modelcontextprotocol"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/r-huijts/xcode-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/r-huijts/xcode-mcp-server/issues"
+  },
+  "homepage": "https://github.com/r-huijts/xcode-mcp-server#readme",
+  "engines": {
+    "node": ">=16.0.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.8.0",
