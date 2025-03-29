@@ -44,51 +44,99 @@ The communication between the Xcode MCP server and your local projects happens e
 - Execute builds with specific configurations
 - Run and manage test suites
 
-## Getting Started
+## Installation
 
-### Prerequisites
+You can install this server in three ways:
 
-Before you begin, ensure you have:
-- Node.js (v14 or later)
-- Xcode Command Line Tools
-- TypeScript
-- Claude Desktop with MCP support
+### 1. Using Claude Desktop with NPM Package
 
-### Quick Setup
+Update your Claude configuration file (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
-1. **Install the Server**:
+```json
+{
+  "mcpServers": {
+    "xcode": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/xcode-server"
+      ],
+      "env": {
+        "PROJECTS_BASE_DIR": "/path/to/your/xcode/projects"
+      }
+    }
+  }
+}
+```
+
+### 2. Global NPM Installation
+
+Install the package globally:
+
+```bash
+npm install -g @modelcontextprotocol/xcode-server
+```
+
+Then update your Claude configuration:
+
+```json
+{
+  "mcpServers": {
+    "xcode": {
+      "command": "xcode-server",
+      "env": {
+        "PROJECTS_BASE_DIR": "/path/to/your/xcode/projects"
+      }
+    }
+  }
+}
+```
+
+### 3. From Source
+
+1. Clone this repository:
    ```bash
-   # Clone the repository
-   git clone [repository-url]
-   cd xcode-server
+   git clone https://github.com/r-huijts/xcode-mcp-server.git
+   cd xcode-mcp-server
+   ```
 
-   # Install dependencies
+2. Install dependencies:
+   ```bash
    npm install
+   ```
 
-   # Build the project
+3. Set up environment variables:
+   ```bash
+   cp .env.example .env
+   ```
+   Edit `.env` and set `PROJECTS_BASE_DIR` to your Xcode projects directory.
+
+4. Build the project:
+   ```bash
    npm run build
    ```
 
-2. **Configure Claude Desktop**:
-   Add this to your Claude Desktop config file (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+Then update your Claude configuration:
 
-   ```json
-   {
-     "mcpServers": {
-       "xcode-server": {
-         "command": "node",
-         "args": [
-           "/path/to/xcode-server/build/index.js"
-         ],
-         "env": {
-           "PROJECTS_BASE_DIR": "/path/to/your/xcode/projects"
-         }
-       }
-     }
-   }
-   ```
+```json
+{
+  "mcpServers": {
+    "xcode": {
+      "command": "node",
+      "args": [
+        "/absolute/path/to/xcode-mcp-server/dist/index.js"
+      ],
+      "env": {
+        "PROJECTS_BASE_DIR": "/path/to/your/xcode/projects"
+      }
+    }
+  }
+}
+```
 
-   Replace the paths with your actual installation and projects directory.
+> **Note**: Replace `/path/to/your/xcode/projects` with the actual path to your Xcode projects directory.
+
+After updating the configuration, restart Claude Desktop for the changes to take effect.
 
 ## Working with the Server
 

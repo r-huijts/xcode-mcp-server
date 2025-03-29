@@ -7,6 +7,10 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs/promises";
 import * as path from "path";
+import * as dotenv from "dotenv";
+
+// Load environment variables from .env file
+dotenv.config();
 
 const execAsync = promisify(exec);
 
@@ -47,28 +51,35 @@ class XcodeServer {
   private projectFiles: Map<string, string[]> = new Map();
 
   constructor(config: ServerConfig = {}) {
+    // Use environment variable for projects base directory
     if (process.env.PROJECTS_BASE_DIR) {
       this.config.projectsBaseDir = process.env.PROJECTS_BASE_DIR;
       console.error(`Using projects base directory from env: ${this.config.projectsBaseDir}`);
     }
     this.config = { ...this.config, ...config };
 
-    // Create the MCP server using the latest SDK conventions.
+    // Create the MCP server
     this.server = new McpServer({
       name: "xcode-server",
-      version: "1.0.0"
+      version: "1.0.0",
+      description: "An MCP server for Xcode integration"
     }, {
       capabilities: {
         tools: {}
       }
     });
 
+    // Enable debug logging if DEBUG is set
+    if (process.env.DEBUG === "true") {
+      console.error("Debug mode enabled");
+    }
+
     this.registerTools();
     this.registerResources();
 
-    // Attempt to auto-detect an active project.
+    // Attempt to auto-detect an active project, but don't fail if none found
     this.detectActiveProject().catch((error) => {
-      console.error("Failed to detect active project:", error.message);
+      console.error("Note: No active project detected -", error.message);
     });
   }
 

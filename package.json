@@ -2,7 +2,6 @@
   "name": "@modelcontextprotocol/xcode-server",
   "version": "1.0.0",
   "description": "An MCP server for Xcode integration, enabling AI assistants to interact with Xcode projects",
-  "private": true,
   "type": "module",
   "bin": {
     "xcode-server": "./dist/index.js"
@@ -20,11 +19,35 @@
     "watch": "tsc --watch",
     "inspector": "npx @modelcontextprotocol/inspector dist/index.js"
   },
+  "keywords": [
+    "xcode",
+    "mcp",
+    "ai",
+    "llm",
+    "ios",
+    "development",
+    "claude",
+    "modelcontextprotocol"
+  ],
+  "author": "R.Huijts",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/r-huijts/xcode-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/r-huijts/xcode-mcp-server/issues"
+  },
+  "homepage": "https://github.com/r-huijts/xcode-mcp-server#readme",
+  "engines": {
+    "node": ">=16.0.0"
+  },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.8.0",
     "@types/glob": "^8.1.0",
     "glob": "^11.0.1",
-    "zod": "^3.24.2"
+    "zod": "^3.24.2",
+    "dotenv": "^16.4.5"
   },
   "devDependencies": {
     "@types/node": "^20.17.28",
