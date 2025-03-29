@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -59,7 +61,8 @@ class XcodeServer {
     // Create the MCP server
     this.server = new McpServer({
       name: "xcode-server",
-      version: "2.0.0"
+      version: "1.0.0",
+      description: "An MCP server for Xcode integration"
     }, {
       capabilities: {
         tools: {}
@@ -136,10 +139,13 @@ class XcodeServer {
       {},
       async () => {
         if (!this.activeProject) {
+          await this.detectActiveProject();
+        }
+        if (!this.activeProject) {
           return { 
             content: [{ 
               type: "text" as const, 
-              text: "No active Xcode project is currently set. You can set one using the set_project_path tool." 
+              text: "No active Xcode project detected." 
             }] 
           };
         }
@@ -510,13 +516,10 @@ class XcodeServer {
           return;
         }
       }
-      
-      // No project found - this is now an acceptable state
-      console.warn("No active Xcode project found. Some features will be limited until a project is set.");
-      this.activeProject = null;
+      throw new Error("No active Xcode project found. Please open a project in Xcode or set one explicitly.");
     } catch (error) {
-      console.warn("Error detecting active project:", error);
-      this.activeProject = null;
+      console.error("Error detecting active project:", error);
+      throw error;
     }
   }
 
@@ -580,13 +583,7 @@ class XcodeServer {
 
   private async buildProject(configuration: string, scheme: string) {
     try {
-      if (!this.activeProject) {
-        throw new Error("No active project set. Please set a project first using set_project_path.");
-      }
-      
-      const { stdout, stderr } = await execAsync(
-        `xcodebuild -project "${this.activeProject.path}" -scheme "${scheme}" -configuration "${configuration}" build`
-      );
+      const { stdout, stderr } = await execAsync(`xcodebuild -scheme "${scheme}" -configuration "${configuration}" build`);
       return { content: [{ type: "text", text: `Build results:\n${stdout}\n${stderr}` }] };
     } catch (error) {
       console.error("Error building project:", error);
