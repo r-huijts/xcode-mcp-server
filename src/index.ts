@@ -429,6 +429,24 @@ class XcodeServer {
         };
       }
     );
+
+    // Register "list_directory"
+    this.server.tool(
+      "list_directory",
+      "Lists the contents of a directory, showing both files and subdirectories.",
+      {
+        path: z.string().describe("Path to the directory to list.")
+      },
+      async ({ path: dirPath }) => {
+        const files = await this.listDirectory(dirPath);
+        return {
+          content: [{
+            type: "text",
+            text: files.join('\n')
+          }]
+        };
+      }
+    );
   }
 
   private registerResources() {
@@ -738,6 +756,50 @@ class XcodeServer {
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
     console.error("Xcode MCP Server started");
+  }
+
+  private isPathAllowed(targetPath: string): boolean {
+    // If projectsBaseDir is set, allow paths within it
+    if (this.config.projectsBaseDir) {
+      // Allow the projects base dir itself and any subdirectories
+      if (targetPath === this.config.projectsBaseDir || targetPath.startsWith(this.config.projectsBaseDir + path.sep)) {
+        return true;
+      }
+    }
+    
+    // If there's an active project, allow paths within its directory
+    if (this.activeProject) {
+      const projectDir = path.dirname(this.activeProject.path);
+      if (targetPath === projectDir || targetPath.startsWith(projectDir + path.sep)) {
+        return true;
+      }
+    }
+
+    // Allow paths within the server's directory for development purposes
+    const serverDir = process.cwd();
+    if (targetPath === serverDir || targetPath.startsWith(serverDir + path.sep)) {
+      return true;
+    }
+    
+    return false;
+  }
+
+  private async listDirectory(dirPath: string): Promise<string[]> {
+    try {
+      const targetPath = path.resolve(dirPath);
+      if (!this.isPathAllowed(targetPath)) {
+        throw new Error(`Access denied - path not allowed: ${targetPath}. Please ensure the path is within your projects directory or set the projects base directory using set_projects_base_dir.`);
+      }
+
+      const entries = await fs.readdir(targetPath, { withFileTypes: true });
+      return entries.map(entry => {
+        const fullPath = path.join(targetPath, entry.name);
+        return `${entry.isDirectory() ? 'd' : 'f'} ${fullPath}`;
+      });
+    } catch (error) {
+      console.error("Error listing directory:", error);
+      throw error;
+    }
   }
 }
 
