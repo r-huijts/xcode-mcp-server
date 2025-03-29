@@ -14,6 +14,62 @@ dotenv.config();
 
 const execAsync = promisify(exec);
 
+// Custom error classes for better error handling
+class XcodeServerError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'XcodeServerError';
+  }
+}
+
+class ProjectNotFoundError extends XcodeServerError {
+  constructor(message: string = "No active project set. Please set a project first using set_project_path.") {
+    super(message);
+    this.name = 'ProjectNotFoundError';
+  }
+}
+
+class PathAccessError extends XcodeServerError {
+  path: string;
+  
+  constructor(path: string, message?: string) {
+    super(message || `Access denied - path not allowed: ${path}. Please ensure the path is within your projects directory or set the projects base directory using set_projects_base_dir.`);
+    this.name = 'PathAccessError';
+    this.path = path;
+  }
+}
+
+class FileOperationError extends XcodeServerError {
+  path: string;
+  operation: string;
+  
+  constructor(operation: string, path: string, cause?: Error) {
+    const message = cause 
+      ? `Failed to ${operation} file at ${path}: ${cause.message}` 
+      : `Failed to ${operation} file at ${path}`;
+    super(message);
+    this.name = 'FileOperationError';
+    this.path = path;
+    this.operation = operation;
+    if (cause) {
+      this.cause = cause;
+    }
+  }
+}
+
+class CommandExecutionError extends XcodeServerError {
+  command: string;
+  
+  constructor(command: string, stderr?: string) {
+    const message = stderr 
+      ? `Command execution failed: ${command}\nError: ${stderr}` 
+      : `Command execution failed: ${command}`;
+    super(message);
+    this.name = 'CommandExecutionError';
+    this.command = command;
+  }
+}
+
 interface XcodeProject {
   path: string;
   name: string;
@@ -492,64 +548,83 @@ class XcodeServer {
   private async detectActiveProject(): Promise<void> {
     try {
       // Attempt to get the frontmost Xcode project via AppleScript.
-      const { stdout: frontmostProject } = await execAsync(`
-        osascript -e '
-          tell application "Xcode"
-            if it is running then
-              set projectFile to path of document 1
-              return POSIX path of projectFile
-            end if
-          end tell
-        '
-      `).catch(() => ({ stdout: "" }));
-      
-      if (frontmostProject.trim()) {
-        const projectPath = frontmostProject.trim();
-        if (this.config.projectsBaseDir && !projectPath.startsWith(this.config.projectsBaseDir)) {
-          console.warn("Active project is outside the configured base directory");
+      try {
+        const { stdout: frontmostProject } = await execAsync(`
+          osascript -e '
+            tell application "Xcode"
+              if it is running then
+                set projectFile to path of document 1
+                return POSIX path of projectFile
+              end if
+            end tell
+          '
+        `);
+        
+        if (frontmostProject && frontmostProject.trim()) {
+          const projectPath = frontmostProject.trim();
+          if (this.config.projectsBaseDir && !projectPath.startsWith(this.config.projectsBaseDir)) {
+            console.warn("Active project is outside the configured base directory");
+          }
+          this.activeProject = {
+            path: projectPath,
+            name: path.basename(projectPath, path.extname(projectPath))
+          };
+          return;
         }
-        this.activeProject = {
-          path: projectPath,
-          name: path.basename(projectPath, path.extname(projectPath))
-        };
-        return;
+      } catch (error) {
+        // Just log and continue with fallback methods
+        console.warn("Could not detect active Xcode project via AppleScript:", 
+          error instanceof Error ? error.message : String(error));
       }
 
       // Fallback: scan base directory if set.
       if (this.config.projectsBaseDir) {
-        const projects = await this.findXcodeProjects();
-        if (projects.length > 0) {
-          const projectStats = await Promise.all(
-            projects.map(async (project) => ({
-              project,
-              stats: await fs.stat(project.path)
-            }))
-          );
-          const mostRecent = projectStats.sort((a, b) => b.stats.mtime.getTime() - a.stats.mtime.getTime())[0];
-          this.activeProject = mostRecent.project;
-          return;
+        try {
+          const projects = await this.findXcodeProjects();
+          if (projects.length > 0) {
+            const projectStats = await Promise.all(
+              projects.map(async (project) => ({
+                project,
+                stats: await fs.stat(project.path)
+              }))
+            );
+            const mostRecent = projectStats.sort((a, b) => b.stats.mtime.getTime() - a.stats.mtime.getTime())[0];
+            this.activeProject = mostRecent.project;
+            return;
+          }
+        } catch (error) {
+          console.warn("Error scanning projects directory:", 
+            error instanceof Error ? error.message : String(error));
         }
       }
 
       // Further fallback: try reading recent projects from Xcode defaults.
-      const { stdout: recentProjects } = await execAsync('defaults read com.apple.dt.Xcode IDERecentWorkspaceDocuments || true').catch(() => ({ stdout: "" }));
-      if (recentProjects) {
-        const projectMatch = recentProjects.match(/= \\"([^"]+)"/);
-        if (projectMatch) {
-          const recentProject = projectMatch[1];
-          if (this.config.projectsBaseDir && !recentProject.startsWith(this.config.projectsBaseDir)) {
-            console.warn("Recent project is outside the configured base directory");
+      try {
+        const { stdout: recentProjects } = await execAsync('defaults read com.apple.dt.Xcode IDERecentWorkspaceDocuments || true');
+        if (recentProjects) {
+          const projectMatch = recentProjects.match(/= \\"([^"]+)"/);
+          if (projectMatch) {
+            const recentProject = projectMatch[1];
+            if (this.config.projectsBaseDir && !recentProject.startsWith(this.config.projectsBaseDir)) {
+              console.warn("Recent project is outside the configured base directory");
+            }
+            this.activeProject = {
+              path: recentProject,
+              name: path.basename(recentProject, path.extname(recentProject))
+            };
+            return;
           }
-          this.activeProject = {
-            path: recentProject,
-            name: path.basename(recentProject, path.extname(recentProject))
-          };
-          return;
         }
+      } catch (error) {
+        console.warn("Error reading Xcode defaults:", 
+          error instanceof Error ? error.message : String(error));
       }
-      throw new Error("No active Xcode project found. Please open a project in Xcode or set one explicitly.");
+      
+      // If we've tried all methods and found nothing
+      throw new ProjectNotFoundError("No active Xcode project found. Please open a project in Xcode or set one explicitly.");
     } catch (error) {
-      console.error("Error detecting active project:", error);
+      console.error("Error detecting active project:", 
+        error instanceof Error ? error.message : String(error));
       throw error;
     }
   }
@@ -614,65 +689,155 @@ class XcodeServer {
 
   private async buildProject(configuration: string, scheme: string) {
     try {
-      if (!this.activeProject) {
-        throw new Error("No active project set. Please set a project first using set_project_path.");
+      if (!this.activeProject) throw new ProjectNotFoundError();
+      
+      const projectPath = this.activeProject.path;
+      const projectInfo = await this.getProjectInfo(projectPath);
+      
+      // Validate configuration and scheme
+      if (!projectInfo.configurations.includes(configuration)) {
+        throw new XcodeServerError(`Invalid configuration "${configuration}". Available configurations: ${projectInfo.configurations.join(", ")}`);
       }
-
-      // Change to the project directory before building
-      const projectDir = path.dirname(this.activeProject.path);
-      process.chdir(projectDir);
-
-      const { stdout, stderr } = await execAsync(
-        `xcodebuild -project "${this.activeProject.path}" -scheme "${scheme}" -configuration "${configuration}" build`
-      );
-      return { content: [{ type: "text", text: `Build results:\n${stdout}\n${stderr}` }] };
+      if (!projectInfo.schemes.includes(scheme)) {
+        throw new XcodeServerError(`Invalid scheme "${scheme}". Available schemes: ${projectInfo.schemes.join(", ")}`);
+      }
+      
+      try {
+        const cmd = `xcodebuild -project "${projectPath}" -scheme "${scheme}" -configuration "${configuration}" build`;
+        const { stdout, stderr } = await execAsync(cmd);
+        return {
+          content: [{
+            type: "text",
+            text: `Build output:\n${stdout}\n${stderr ? 'Error output:\n' + stderr : ''}`
+          }]
+        };
+      } catch (error) {
+        // Extract the stderr from the command execution error if available
+        let stderr = '';
+        if (error instanceof Error && 'stderr' in error) {
+          stderr = (error as any).stderr;
+        }
+        
+        throw new CommandExecutionError(
+          `xcodebuild for ${scheme} (${configuration})`, 
+          stderr || (error instanceof Error ? error.message : String(error))
+        );
+      }
     } catch (error) {
+      if (error instanceof XcodeServerError) {
+        throw error; // Already a specific error type
+      }
+      
       if (error instanceof Error) {
         console.error("Error building project:", error.message);
-        throw new Error(`Failed to build project: ${error.message}`);
+        throw new XcodeServerError(`Failed to build project: ${error.message}`);
       }
-      throw error;
+      
+      console.error("Unknown error building project:", error);
+      throw new XcodeServerError(`Failed to build project: ${String(error)}`);
     }
   }
 
   private async readProjectFile(filePath: string) {
     try {
-      if (!this.activeProject) throw new Error("No active project set.");
+      if (!this.activeProject) throw new ProjectNotFoundError();
+      
       const projectRoot = path.dirname(this.activeProject.path);
       const absolutePath = path.isAbsolute(filePath) ? filePath : path.join(projectRoot, filePath);
-      if (!absolutePath.startsWith(projectRoot)) throw new Error("File must be within the active project directory");
-      const content = await fs.readFile(absolutePath, "utf-8");
-      const stats = await fs.stat(absolutePath);
-      const mimeType = this.getMimeTypeForExtension(path.extname(absolutePath));
-      return {
-        content: [{
-          type: "text",
-          text: content,
-          mimeType,
-          metadata: { lastModified: stats.mtime, size: stats.size }
-        }]
-      };
+      
+      if (!absolutePath.startsWith(projectRoot)) {
+        throw new PathAccessError(absolutePath, "File must be within the active project directory");
+      }
+      
+      try {
+        const content = await fs.readFile(absolutePath, "utf-8");
+        const stats = await fs.stat(absolutePath);
+        const mimeType = this.getMimeTypeForExtension(path.extname(absolutePath));
+        
+        return {
+          content: [{
+            type: "text",
+            text: content,
+            mimeType,
+            metadata: { lastModified: stats.mtime, size: stats.size }
+          }]
+        };
+      } catch (error) {
+        if (error instanceof Error) {
+          const nodeError = error as NodeJS.ErrnoException;
+          if (nodeError.code === 'ENOENT') {
+            throw new FileOperationError('read', absolutePath, new Error('File does not exist'));
+          }
+          if (nodeError.code === 'EACCES') {
+            throw new FileOperationError('read', absolutePath, new Error('Permission denied'));
+          }
+        }
+        throw new FileOperationError('read', absolutePath, error instanceof Error ? error : new Error(String(error)));
+      }
     } catch (error) {
       console.error("Error reading file:", error);
-      throw error;
+      throw error; // Re-throw the already specific error
     }
   }
 
   private async writeProjectFile(filePath: string, content: string, createIfMissing: boolean = false) {
     try {
-      if (!this.activeProject) throw new Error("No active project set.");
+      if (!this.activeProject) throw new ProjectNotFoundError();
+      
       const projectRoot = path.dirname(this.activeProject.path);
       const absolutePath = path.isAbsolute(filePath) ? filePath : path.join(projectRoot, filePath);
-      if (!absolutePath.startsWith(projectRoot)) throw new Error("File must be within the active project directory");
-      const exists = await fs.access(absolutePath).then(() => true).catch(() => false);
-      if (!exists && !createIfMissing) throw new Error("File does not exist and createIfMissing is false");
-      await fs.mkdir(path.dirname(absolutePath), { recursive: true });
-      await fs.writeFile(absolutePath, content, "utf-8");
-      await this.updateProjectReferences(projectRoot, absolutePath);
-      return { content: [{ type: "text", text: `Successfully wrote ${absolutePath}` }] };
+      
+      if (!absolutePath.startsWith(projectRoot)) {
+        throw new PathAccessError(absolutePath, "File must be within the active project directory");
+      }
+      
+      try {
+        const exists = await fs.access(absolutePath).then(() => true).catch(() => false);
+        if (!exists && !createIfMissing) {
+          throw new FileOperationError('write', absolutePath, new Error('File does not exist and createIfMissing is false'));
+        }
+        
+        // Create directory structure if needed
+        try {
+          await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+        } catch (mkdirError) {
+          throw new FileOperationError('create directory for', absolutePath, 
+            mkdirError instanceof Error ? mkdirError : new Error(String(mkdirError)));
+        }
+        
+        // Write file
+        await fs.writeFile(absolutePath, content, "utf-8");
+        
+        // Update project references if needed
+        try {
+          await this.updateProjectReferences(projectRoot, absolutePath);
+        } catch (updateError) {
+          console.warn(`Warning: Could not update project references: ${updateError instanceof Error ? updateError.message : String(updateError)}`);
+          // Continue despite reference update failure
+        }
+        
+        return { content: [{ type: "text", text: `Successfully wrote ${absolutePath}` }] };
+      } catch (error) {
+        if (error instanceof FileOperationError) {
+          throw error; // Already a specific error
+        }
+        
+        if (error instanceof Error) {
+          const nodeError = error as NodeJS.ErrnoException;
+          if (nodeError.code === 'EACCES') {
+            throw new FileOperationError('write', absolutePath, new Error('Permission denied'));
+          }
+          if (nodeError.code === 'EISDIR') {
+            throw new FileOperationError('write', absolutePath, new Error('Path is a directory, not a file'));
+          }
+        }
+        
+        throw new FileOperationError('write', absolutePath, 
+          error instanceof Error ? error : new Error(String(error)));
+      }
     } catch (error) {
       console.error("Error writing file:", error);
-      throw error;
+      throw error; // Re-throw the already specific error
     }
   }
 
@@ -737,11 +902,44 @@ class XcodeServer {
 
   private async runTests(testPlan?: string) {
     try {
-      const arg = testPlan ? `-testPlan "${testPlan}"` : "";
-      const { stdout, stderr } = await execAsync(`xcodebuild test ${arg}`);
-      return { content: [{ type: "text", text: `Test results:\n${stdout}\n${stderr}` }] };
+      if (!this.activeProject) throw new ProjectNotFoundError();
+      
+      try {
+        const arg = testPlan ? `-testPlan "${testPlan}"` : "";
+        const cmd = `xcodebuild test ${arg}`;
+        const { stdout, stderr } = await execAsync(cmd);
+        
+        const hasFailures = stdout.includes("** TEST FAILED **") || stderr.includes("** TEST FAILED **");
+        return { 
+          content: [{ 
+            type: "text", 
+            text: `Test ${hasFailures ? 'FAILED' : 'PASSED'}\n\nTest results:\n${stdout}\n${stderr ? 'Error output:\n' + stderr : ''}` 
+          }] 
+        };
+      } catch (error) {
+        // Extract the stderr from the command execution error if available
+        let stderr = '';
+        if (error instanceof Error && 'stderr' in error) {
+          stderr = (error as any).stderr;
+        }
+        
+        // Check for specific test failure vs command failure
+        if (stderr.includes("** TEST FAILED **") || (error instanceof Error && error.message.includes("** TEST FAILED **"))) {
+          return { 
+            content: [{ 
+              type: "text", 
+              text: `Tests FAILED\n\n${stderr || (error instanceof Error ? error.message : String(error))}` 
+            }] 
+          };
+        }
+        
+        throw new CommandExecutionError(
+          `xcodebuild test${testPlan ? ` with testPlan ${testPlan}` : ''}`, 
+          stderr || (error instanceof Error ? error.message : String(error))
+        );
+      }
     } catch (error) {
-      console.error("Error running tests:", error);
+      console.error("Error running tests:", error instanceof Error ? error.message : String(error));
       throw error;
     }
   }
@@ -752,10 +950,19 @@ class XcodeServer {
   }
 
   public async start() {
-    console.error("Starting Xcode MCP Server...");
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
-    console.error("Xcode MCP Server started");
+    try {
+      console.error("Starting Xcode MCP Server...");
+      const transport = new StdioServerTransport();
+      await this.server.connect(transport);
+      console.error("Xcode MCP Server started");
+    } catch (error) {
+      if (error instanceof Error) {
+        console.error("Failed to start server:", error.message);
+        throw new XcodeServerError(`Server initialization failed: ${error.message}`);
+      }
+      console.error("Unknown error starting server:", error);
+      throw new XcodeServerError(`Server initialization failed: ${String(error)}`);
+    }
   }
 
   private isPathAllowed(targetPath: string): boolean {
@@ -788,23 +995,46 @@ class XcodeServer {
     try {
       const targetPath = path.resolve(dirPath);
       if (!this.isPathAllowed(targetPath)) {
-        throw new Error(`Access denied - path not allowed: ${targetPath}. Please ensure the path is within your projects directory or set the projects base directory using set_projects_base_dir.`);
+        throw new PathAccessError(targetPath);
       }
 
-      const entries = await fs.readdir(targetPath, { withFileTypes: true });
-      return entries.map(entry => {
-        const fullPath = path.join(targetPath, entry.name);
-        return `${entry.isDirectory() ? 'd' : 'f'} ${fullPath}`;
-      });
+      try {
+        const entries = await fs.readdir(targetPath, { withFileTypes: true });
+        return entries.map(entry => {
+          const fullPath = path.join(targetPath, entry.name);
+          return `${entry.isDirectory() ? 'd' : 'f'} ${fullPath}`;
+        });
+      } catch (error) {
+        if (error instanceof Error) {
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            throw new FileOperationError('list', targetPath, new Error('Directory does not exist'));
+          }
+          if ((error as NodeJS.ErrnoException).code === 'EACCES') {
+            throw new FileOperationError('list', targetPath, new Error('Permission denied'));
+          }
+        }
+        throw new FileOperationError('list', targetPath, error instanceof Error ? error : new Error(String(error)));
+      }
     } catch (error) {
       console.error("Error listing directory:", error);
-      throw error;
+      throw error; // Re-throw the already specific error
     }
   }
 }
 
-const server = new XcodeServer();
-server.start().catch((error) => {
-  console.error("Failed to start server:", error);
+// Main function to initialize and start the server with proper error handling
+async function main() {
+  try {
+    const server = new XcodeServer();
+    await server.start();
+  } catch (error) {
+    console.error("Fatal error:", error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+}
+
+// Start the server
+main().catch((error) => {
+  console.error("Unhandled exception:", error instanceof Error ? error.message : String(error));
   process.exit(1);
 });
