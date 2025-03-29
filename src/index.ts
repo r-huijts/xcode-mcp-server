@@ -241,10 +241,23 @@ class XcodeServer {
       "build_project",
       "Builds the active Xcode project using the specified configuration and scheme.",
       {
-        configuration: z.string().describe("Build configuration to use."),
-        scheme: z.string().describe("Name of the build scheme to be built.")
+        configuration: z.string().describe("Build configuration to use (e.g., 'Debug' or 'Release')."),
+        scheme: z.string().describe("Name of the build scheme to be built. Must be one of the schemes available in the project.")
       },
       async ({ configuration, scheme }) => {
+        if (!this.activeProject) {
+          throw new Error("No active project set. Please set a project first using set_project_path.");
+        }
+        
+        // Validate configuration and scheme
+        const info = await this.getProjectInfo(this.activeProject.path);
+        if (!info.configurations.includes(configuration)) {
+          throw new Error(`Invalid configuration "${configuration}". Available configurations: ${info.configurations.join(", ")}`);
+        }
+        if (!info.schemes.includes(scheme)) {
+          throw new Error(`Invalid scheme "${scheme}". Available schemes: ${info.schemes.join(", ")}`);
+        }
+        
         const result = await this.buildProject(configuration, scheme);
         return {
           content: [{
@@ -583,10 +596,23 @@ class XcodeServer {
 
   private async buildProject(configuration: string, scheme: string) {
     try {
-      const { stdout, stderr } = await execAsync(`xcodebuild -scheme "${scheme}" -configuration "${configuration}" build`);
+      if (!this.activeProject) {
+        throw new Error("No active project set. Please set a project first using set_project_path.");
+      }
+
+      // Change to the project directory before building
+      const projectDir = path.dirname(this.activeProject.path);
+      process.chdir(projectDir);
+
+      const { stdout, stderr } = await execAsync(
+        `xcodebuild -project "${this.activeProject.path}" -scheme "${scheme}" -configuration "${configuration}" build`
+      );
       return { content: [{ type: "text", text: `Build results:\n${stdout}\n${stderr}` }] };
     } catch (error) {
-      console.error("Error building project:", error);
+      if (error instanceof Error) {
+        console.error("Error building project:", error.message);
+        throw new Error(`Failed to build project: ${error.message}`);
+      }
       throw error;
     }
   }
