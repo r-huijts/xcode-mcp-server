@@ -59,7 +59,7 @@ Update your Claude configuration file (`~/Library/Application Support/Claude/cla
       "command": "npx",
       "args": [
         "-y",
-        "@modelcontextprotocol/xcode-server"
+        "xcode-mcp-server"
       ],
       "env": {
         "PROJECTS_BASE_DIR": "/path/to/your/xcode/projects"
