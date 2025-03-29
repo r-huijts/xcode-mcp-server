@@ -1,20 +1,24 @@
 {
-  "name": "xcode-server",
-  "version": "0.1.0",
-  "description": "A Model Context Protocol server",
+  "name": "@modelcontextprotocol/xcode-server",
+  "version": "1.0.0",
+  "description": "An MCP server for Xcode integration, enabling AI assistants to interact with Xcode projects",
   "private": true,
   "type": "module",
   "bin": {
-    "xcode-server": "./build/index.js"
+    "xcode-server": "./dist/index.js"
   },
   "files": [
-    "build"
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
-    "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
+    "clean": "rm -rf dist",
+    "prebuild": "npm run clean",
+    "build": "tsc && chmod +x dist/index.js",
     "prepare": "npm run build",
     "watch": "tsc --watch",
-    "inspector": "npx @modelcontextprotocol/inspector build/index.js"
+    "inspector": "npx @modelcontextprotocol/inspector dist/index.js"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.8.0",
