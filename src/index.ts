@@ -479,19 +479,109 @@ class XcodeServer {
       }
     );
 
-    // Register "swift_package_update"
+    // Register "add_swift_package"
     this.server.tool(
-      "swift_package_update",
-      "Updates the dependencies of your Swift project using Swift Package Manager by invoking 'swift package update'.",
+      "add_swift_package",
+      "Adds a Swift Package dependency to the active project.",
+      {
+        url: z.string().describe("The URL of the Swift package to add"),
+        version: z.string().optional().describe("Optional version requirement (e.g., 'exact: 1.0.0', 'from: 1.0.0', 'branch: main')"),
+        productName: z.string().optional().describe("Optional specific product name to add from the package")
+      },
+      async ({ url, version, productName }) => {
+        if (!this.activeProject) throw new ProjectNotFoundError();
+        
+        const projectRoot = this.activeProject.path;
+        const packagePath = this.activeProject.isSPMProject 
+          ? path.join(projectRoot, "Package.swift")
+          : path.join(projectRoot, "Package.swift");
+
+        try {
+          // Check if Package.swift exists
+          await fs.access(packagePath);
+        } catch {
+          throw new XcodeServerError("No Package.swift found in the project directory. This project doesn't use Swift Package Manager.");
+        }
+
+        try {
+          let dependencyArg = `"${url}"`;
+          if (version) {
+            if (version.startsWith('exact:')) {
+              dependencyArg += ` --exact ${version.split(':')[1].trim()}`;
+            } else if (version.startsWith('from:')) {
+              dependencyArg += ` --from ${version.split(':')[1].trim()}`;
+            } else if (version.startsWith('branch:')) {
+              dependencyArg += ` --branch ${version.split(':')[1].trim()}`;
+            } else {
+              dependencyArg += ` ${version}`;
+            }
+          }
+
+          const productArg = productName ? ` --product ${productName}` : '';
+          const cmd = `cd "${projectRoot}" && swift package add-dependency ${dependencyArg}${productArg}`;
+          
+          const { stdout, stderr } = await execAsync(cmd);
+          
+          // After adding dependency, run package update
+          await execAsync('swift package update', { cwd: projectRoot });
+          
+          return {
+            content: [{
+              type: "text",
+              text: `Added package dependency:\n${stdout}\n${stderr ? 'Error output:\n' + stderr : ''}`
+            }]
+          };
+        } catch (error) {
+          let stderr = '';
+          if (error instanceof Error && 'stderr' in error) {
+            stderr = (error as any).stderr;
+          }
+          throw new CommandExecutionError(
+            'swift package add-dependency',
+            stderr || (error instanceof Error ? error.message : String(error))
+          );
+        }
+      }
+    );
+
+    // Register "update_swift_package"
+    this.server.tool(
+      "update_swift_package",
+      "Updates the dependencies of your Swift project using Swift Package Manager.",
       {},
       async () => {
-        const { stdout, stderr } = await execAsync("swift package update");
-        return {
-          content: [{
-            type: "text" as const,
-            text: `Swift Package Update Output:\n${stdout}\n${stderr}`
-          }]
-        };
+        if (!this.activeProject) throw new ProjectNotFoundError();
+        
+        const projectRoot = this.activeProject.path;
+        const packagePath = this.activeProject.isSPMProject 
+          ? path.join(projectRoot, "Package.swift")
+          : path.join(projectRoot, "Package.swift");
+
+        try {
+          // Check if Package.swift exists
+          await fs.access(packagePath);
+        } catch {
+          throw new XcodeServerError("No Package.swift found in the project directory. This project doesn't use Swift Package Manager.");
+        }
+
+        try {
+          const { stdout, stderr } = await execAsync('swift package update', { cwd: projectRoot });
+          return {
+            content: [{
+              type: "text",
+              text: `Swift Package Update Output:\n${stdout}\n${stderr ? 'Error output:\n' + stderr : ''}`
+            }]
+          };
+        } catch (error) {
+          let stderr = '';
+          if (error instanceof Error && 'stderr' in error) {
+            stderr = (error as any).stderr;
+          }
+          throw new CommandExecutionError(
+            'swift package update',
+            stderr || (error instanceof Error ? error.message : String(error))
+          );
+        }
       }
     );
 
