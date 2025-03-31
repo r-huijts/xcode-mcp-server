@@ -108,8 +108,9 @@ class XcodeServer {
     workspace?: string;
     name: string;
     isWorkspace?: boolean;
-    associatedProjectPath?: string;
     isSPMProject?: boolean;
+    associatedProjectPath?: string;
+    packageManifestPath?: string;
   } | null = null;
   private projectFiles: Map<string, string[]> = new Map();
 
@@ -479,6 +480,61 @@ class XcodeServer {
       }
     );
 
+    // Register "init_swift_package"
+    this.server.tool(
+      "init_swift_package",
+      "Initializes a new Swift Package Manager project in the current directory.",
+      {
+        type: z.enum(['library', 'executable', 'empty']).optional().describe("Type of package to create (library, executable, or empty)"),
+        name: z.string().optional().describe("Name for the package (defaults to directory name)")
+      },
+      async ({ type, name }) => {
+        if (!this.activeProject) throw new ProjectNotFoundError();
+        
+        const projectRoot = this.activeProject.path;
+        const packagePath = path.join(projectRoot, "Package.swift");
+
+        try {
+          // Check if Package.swift already exists
+          await fs.access(packagePath);
+          throw new XcodeServerError("Package.swift already exists in this directory.");
+        } catch (error) {
+          // Package.swift doesn't exist, which is what we want
+          if (!(error instanceof XcodeServerError)) {
+            try {
+              const typeArg = type ? `--type ${type}` : '';
+              const nameArg = name ? `--name ${name}` : '';
+              const cmd = `cd "${projectRoot}" && swift package init ${typeArg} ${nameArg}`.trim();
+              
+              const { stdout, stderr } = await execAsync(cmd);
+              
+              // Update project info to reflect it's now an SPM project
+              this.activeProject.isSPMProject = true;
+              this.activeProject.packageManifestPath = packagePath;
+              
+              return {
+                content: [{
+                  type: "text",
+                  text: `Initialized new Swift package:\n${stdout}\n${stderr ? 'Error output:\n' + stderr : ''}`
+                }]
+              };
+            } catch (error) {
+              let stderr = '';
+              if (error instanceof Error && 'stderr' in error) {
+                stderr = (error as any).stderr;
+              }
+              throw new CommandExecutionError(
+                'swift package init',
+                stderr || (error instanceof Error ? error.message : String(error))
+              );
+            }
+          } else {
+            throw error;
+          }
+        }
+      }
+    );
+
     // Register "add_swift_package"
     this.server.tool(
       "add_swift_package",
@@ -500,7 +556,10 @@ class XcodeServer {
           // Check if Package.swift exists
           await fs.access(packagePath);
         } catch {
-          throw new XcodeServerError("No Package.swift found in the project directory. This project doesn't use Swift Package Manager.");
+          throw new XcodeServerError(
+            "No Package.swift found in the project directory. " +
+            "To initialize a new Swift Package Manager project, use the init_swift_package tool first."
+          );
         }
 
         try {
