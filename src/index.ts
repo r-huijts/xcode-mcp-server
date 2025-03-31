@@ -73,6 +73,8 @@ class CommandExecutionError extends XcodeServerError {
 interface XcodeProject {
   path: string;
   name: string;
+  isWorkspace?: boolean;
+  associatedProjectPath?: string;  // For workspace, points to main .xcodeproj
 }
 
 interface ServerConfig {
@@ -103,6 +105,8 @@ class XcodeServer {
     path: string;
     workspace?: string;
     name: string;
+    isWorkspace?: boolean;
+    associatedProjectPath?: string;
   } | null = null;
   private projectFiles: Map<string, string[]> = new Map();
 
@@ -177,7 +181,8 @@ class XcodeServer {
         }
         this.activeProject = {
           path: projectPath,
-          name: path.basename(projectPath, ".xcodeproj")
+          name: path.basename(projectPath, ".xcodeproj"),
+          isWorkspace: false
         };
         return {
           content: [{
@@ -503,6 +508,157 @@ class XcodeServer {
         };
       }
     );
+
+    // Register "pod_install"
+    this.server.tool(
+      "pod_install",
+      "Runs 'pod install' in the active project directory to install CocoaPods dependencies.",
+      {},
+      async () => {
+        if (!this.activeProject) throw new ProjectNotFoundError();
+        
+        const projectRoot = path.dirname(this.activeProject.path);
+        const podfilePath = path.join(projectRoot, 'Podfile');
+        
+        try {
+          // Check if Podfile exists
+          await fs.access(podfilePath);
+        } catch {
+          throw new XcodeServerError("No Podfile found in the project directory. This project doesn't use CocoaPods.");
+        }
+        
+        try {
+          const { stdout, stderr } = await execAsync('pod install', { cwd: projectRoot });
+          return {
+            content: [{
+              type: "text",
+              text: `CocoaPods installation output:\n${stdout}\n${stderr ? 'Error output:\n' + stderr : ''}`
+            }]
+          };
+        } catch (error) {
+          let stderr = '';
+          if (error instanceof Error && 'stderr' in error) {
+            stderr = (error as any).stderr;
+          }
+          throw new CommandExecutionError(
+            'pod install',
+            stderr || (error instanceof Error ? error.message : String(error))
+          );
+        }
+      }
+    );
+
+    // Register "pod_update"
+    this.server.tool(
+      "pod_update",
+      "Runs 'pod update' in the active project directory to update CocoaPods dependencies.",
+      {
+        pods: z.array(z.string()).optional().describe("Optional list of specific pods to update. If not provided, updates all pods.")
+      },
+      async ({ pods }) => {
+        if (!this.activeProject) throw new ProjectNotFoundError();
+        
+        const projectRoot = path.dirname(this.activeProject.path);
+        const podfilePath = path.join(projectRoot, 'Podfile');
+        
+        try {
+          // Check if Podfile exists
+          await fs.access(podfilePath);
+        } catch {
+          throw new XcodeServerError("No Podfile found in the project directory. This project doesn't use CocoaPods.");
+        }
+        
+        try {
+          const podsToUpdate = pods ? pods.join(' ') : '';
+          const { stdout, stderr } = await execAsync(`pod update ${podsToUpdate}`, { cwd: projectRoot });
+          return {
+            content: [{
+              type: "text",
+              text: `CocoaPods update output:\n${stdout}\n${stderr ? 'Error output:\n' + stderr : ''}`
+            }]
+          };
+        } catch (error) {
+          let stderr = '';
+          if (error instanceof Error && 'stderr' in error) {
+            stderr = (error as any).stderr;
+          }
+          throw new CommandExecutionError(
+            'pod update',
+            stderr || (error instanceof Error ? error.message : String(error))
+          );
+        }
+      }
+    );
+
+    // Register "check_cocoapods"
+    this.server.tool(
+      "check_cocoapods",
+      "Checks if the active project uses CocoaPods and returns information about the setup.",
+      {},
+      async () => {
+        if (!this.activeProject) throw new ProjectNotFoundError();
+        
+        const projectRoot = path.dirname(this.activeProject.path);
+        const podfilePath = path.join(projectRoot, 'Podfile');
+        const podfileLockPath = path.join(projectRoot, 'Podfile.lock');
+        
+        const info = {
+          usesCocoapods: false,
+          podfileExists: false,
+          podfileLockExists: false,
+          installedPods: [] as string[],
+          workspaceCreated: false
+        };
+        
+        try {
+          // Check Podfile
+          await fs.access(podfilePath);
+          info.podfileExists = true;
+          info.usesCocoapods = true;
+          
+          // Check Podfile.lock
+          try {
+            await fs.access(podfileLockPath);
+            info.podfileLockExists = true;
+            
+            // Parse Podfile.lock to get installed pods
+            const lockContent = await fs.readFile(podfileLockPath, 'utf-8');
+            const podMatches = lockContent.match(/- "?([^"]+)"? \([\d.]+\)/g);
+            if (podMatches) {
+              info.installedPods = podMatches.map(match => {
+                const nameMatch = match.match(/- "?([^"]+)"? \(/);
+                return nameMatch ? nameMatch[1] : match;
+              });
+            }
+          } catch {
+            // Podfile.lock doesn't exist, which is fine
+          }
+          
+          // Check if workspace exists
+          const workspacePath = path.join(projectRoot, `${this.activeProject.name}.xcworkspace`);
+          try {
+            await fs.access(workspacePath);
+            info.workspaceCreated = true;
+          } catch {
+            // Workspace doesn't exist, which might mean pods haven't been installed
+          }
+          
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify(info, null, 2)
+            }]
+          };
+        } catch {
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify(info, null, 2)
+            }]
+          };
+        }
+      }
+    );
   }
 
   private registerResources() {
@@ -565,9 +721,19 @@ class XcodeServer {
           if (this.config.projectsBaseDir && !projectPath.startsWith(this.config.projectsBaseDir)) {
             console.warn("Active project is outside the configured base directory");
           }
+
+          const isWorkspace = projectPath.endsWith('.xcworkspace');
+          let associatedProjectPath;
+          
+          if (isWorkspace) {
+            associatedProjectPath = await this.findMainProjectInWorkspace(projectPath);
+          }
+          
           this.activeProject = {
             path: projectPath,
-            name: path.basename(projectPath, path.extname(projectPath))
+            name: path.basename(projectPath, path.extname(projectPath)),
+            isWorkspace,
+            associatedProjectPath
           };
           return;
         }
@@ -608,9 +774,19 @@ class XcodeServer {
             if (this.config.projectsBaseDir && !recentProject.startsWith(this.config.projectsBaseDir)) {
               console.warn("Recent project is outside the configured base directory");
             }
+
+            const isWorkspace = recentProject.endsWith('.xcworkspace');
+            let associatedProjectPath;
+            
+            if (isWorkspace) {
+              associatedProjectPath = await this.findMainProjectInWorkspace(recentProject);
+            }
+            
             this.activeProject = {
               path: recentProject,
-              name: path.basename(recentProject, path.extname(recentProject))
+              name: path.basename(recentProject, path.extname(recentProject)),
+              isWorkspace,
+              associatedProjectPath
             };
             return;
           }
@@ -635,15 +811,69 @@ class XcodeServer {
       if (this.config.projectsBaseDir) {
         searchPath = this.config.projectsBaseDir;
       }
-      const { stdout } = await execAsync(`find "${searchPath}" -name "*.xcodeproj"`);
-      const projectPaths = stdout.split("\n").filter(Boolean);
-      return projectPaths.map((projectPath) => ({
-        path: projectPath,
-        name: path.basename(projectPath, ".xcodeproj")
-      }));
+      
+      // Find both .xcodeproj and .xcworkspace
+      const { stdout: projStdout } = await execAsync(`find "${searchPath}" -name "*.xcodeproj"`);
+      const { stdout: workspaceStdout } = await execAsync(`find "${searchPath}" -name "*.xcworkspace"`);
+      
+      const projects: XcodeProject[] = [];
+      
+      // Handle regular projects
+      const projectPaths = projStdout.split("\n").filter(Boolean);
+      for (const projectPath of projectPaths) {
+        // Skip if this is a project inside a workspace (will be handled with workspace)
+        const isInWorkspace = await this.isProjectInWorkspace(projectPath);
+        if (!isInWorkspace) {
+          projects.push({
+            path: projectPath,
+            name: path.basename(projectPath, ".xcodeproj"),
+            isWorkspace: false
+          });
+        }
+      }
+      
+      // Handle workspaces
+      const workspacePaths = workspaceStdout.split("\n").filter(Boolean);
+      for (const workspacePath of workspacePaths) {
+        const mainProject = await this.findMainProjectInWorkspace(workspacePath);
+        projects.push({
+          path: workspacePath,
+          name: path.basename(workspacePath, ".xcworkspace"),
+          isWorkspace: true,
+          associatedProjectPath: mainProject
+        });
+      }
+      
+      return projects;
     } catch (error) {
       console.error("Error finding projects:", error);
       return [];
+    }
+  }
+
+  private async isProjectInWorkspace(projectPath: string): Promise<boolean> {
+    const projectDir = path.dirname(projectPath);
+    const workspaceCheck = await execAsync(`find "${projectDir}" -maxdepth 2 -name "*.xcworkspace"`);
+    return workspaceCheck.stdout.trim().length > 0;
+  }
+
+  private async findMainProjectInWorkspace(workspacePath: string): Promise<string | undefined> {
+    try {
+      // Read workspace contents
+      const contentsPath = path.join(workspacePath, 'contents.xcworkspacedata');
+      const contents = await fs.readFile(contentsPath, 'utf-8');
+      
+      // Look for the main project reference
+      const projectMatch = contents.match(/location = "group:([^"]+\.xcodeproj)"/);
+      if (projectMatch) {
+        const projectRelPath = projectMatch[1];
+        return path.resolve(path.dirname(workspacePath), projectRelPath);
+      }
+      
+      return undefined;
+    } catch (error) {
+      console.error("Error finding main project in workspace:", error);
+      return undefined;
     }
   }
 
@@ -692,7 +922,14 @@ class XcodeServer {
       if (!this.activeProject) throw new ProjectNotFoundError();
       
       const projectPath = this.activeProject.path;
-      const projectInfo = await this.getProjectInfo(projectPath);
+      let projectInfo;
+      
+      // Different command for workspace vs project
+      if (this.activeProject.isWorkspace) {
+        projectInfo = await this.getWorkspaceInfo(projectPath);
+      } else {
+        projectInfo = await this.getProjectInfo(projectPath);
+      }
       
       // Validate configuration and scheme
       if (!projectInfo.configurations.includes(configuration)) {
@@ -703,7 +940,9 @@ class XcodeServer {
       }
       
       try {
-        const cmd = `xcodebuild -project "${projectPath}" -scheme "${scheme}" -configuration "${configuration}" build`;
+        // Use -workspace for workspace projects, -project for regular projects
+        const projectFlag = this.activeProject.isWorkspace ? `-workspace "${projectPath}"` : `-project "${projectPath}"`;
+        const cmd = `xcodebuild ${projectFlag} -scheme "${scheme}" -configuration "${configuration}" build`;
         const { stdout, stderr } = await execAsync(cmd);
         return {
           content: [{
@@ -712,7 +951,6 @@ class XcodeServer {
           }]
         };
       } catch (error) {
-        // Extract the stderr from the command execution error if available
         let stderr = '';
         if (error instanceof Error && 'stderr' in error) {
           stderr = (error as any).stderr;
@@ -725,7 +963,7 @@ class XcodeServer {
       }
     } catch (error) {
       if (error instanceof XcodeServerError) {
-        throw error; // Already a specific error type
+        throw error;
       }
       
       if (error instanceof Error) {
@@ -735,6 +973,36 @@ class XcodeServer {
       
       console.error("Unknown error building project:", error);
       throw new XcodeServerError(`Failed to build project: ${String(error)}`);
+    }
+  }
+
+  private async getWorkspaceInfo(workspacePath: string) {
+    try {
+      const { stdout } = await execAsync(`xcodebuild -workspace "${workspacePath}" -list`);
+      const info = {
+        path: workspacePath,
+        targets: [] as string[],
+        configurations: [] as string[],
+        schemes: [] as string[]
+      };
+      let currentSection = "";
+      for (const line of stdout.split("\n")) {
+        if (line.includes("Targets:")) {
+          currentSection = "targets";
+        } else if (line.includes("Build Configurations:")) {
+          currentSection = "configurations";
+        } else if (line.includes("Schemes:")) {
+          currentSection = "schemes";
+        } else if (line.trim() && !line.includes(":")) {
+          if (currentSection === "targets") info.targets.push(line.trim());
+          else if (currentSection === "configurations") info.configurations.push(line.trim());
+          else if (currentSection === "schemes") info.schemes.push(line.trim());
+        }
+      }
+      return info;
+    } catch (error) {
+      console.error("Error getting workspace info:", error);
+      throw error;
     }
   }
 
