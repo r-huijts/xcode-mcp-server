@@ -26,6 +26,17 @@ flowchart LR
 
 The communication between the Xcode MCP server and your local projects happens entirely on your machine—your code is not exposed to the internet. The Model Context Protocol ensures that Claude can only perform approved operations through well-defined interfaces, giving you a secure way to let AI assist with your development while maintaining complete control.
 
+## MCP Client Compatibility
+
+This server implements the Model Context Protocol (MCP) specification, making it compatible with any MCP-compliant client or host. While the installation instructions focus on Claude Desktop, you can use this server with:
+
+- Self-built MCP clients
+- Cursor AI
+- Other MCP-compatible IDEs and tools
+- Any application that implements the MCP client specification
+
+The standardized protocol ensures consistent functionality across different clients while maintaining the same level of security and local-only operation.
+
 ## Key Features
 
 ### 🔍 Intelligent Project Detection
