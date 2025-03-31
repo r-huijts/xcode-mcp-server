@@ -483,7 +483,7 @@ class XcodeServer {
     // Register "init_swift_package"
     this.server.tool(
       "init_swift_package",
-      "Initializes a new Swift Package Manager project in the current directory.",
+      "Initializes a new Swift Package Manager project in the current directory. Use this tool first if your project doesn't have a Package.swift file yet and you want to start using Swift packages.",
       {
         type: z.enum(['library', 'executable', 'empty']).optional().describe("Type of package to create (library, executable, or empty)"),
         name: z.string().optional().describe("Name for the package (defaults to directory name)")
@@ -538,7 +538,7 @@ class XcodeServer {
     // Register "add_swift_package"
     this.server.tool(
       "add_swift_package",
-      "Adds a Swift Package dependency to the active project.",
+      "Adds a Swift Package dependency to the active project. Note: Your project must already be set up for Swift Package Manager (must have a Package.swift file). If you haven't initialized SPM yet, use the init_swift_package tool first.",
       {
         url: z.string().describe("The URL of the Swift package to add"),
         version: z.string().optional().describe("Optional version requirement (e.g., 'exact: 1.0.0', 'from: 1.0.0', 'branch: main')"),
