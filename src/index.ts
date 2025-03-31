@@ -74,7 +74,9 @@ interface XcodeProject {
   path: string;
   name: string;
   isWorkspace?: boolean;
+  isSPMProject?: boolean;
   associatedProjectPath?: string;  // For workspace, points to main .xcodeproj
+  packageManifestPath?: string;    // For SPM projects, points to Package.swift
 }
 
 interface ServerConfig {
@@ -107,6 +109,7 @@ class XcodeServer {
     name: string;
     isWorkspace?: boolean;
     associatedProjectPath?: string;
+    isSPMProject?: boolean;
   } | null = null;
   private projectFiles: Map<string, string[]> = new Map();
 
@@ -182,7 +185,8 @@ class XcodeServer {
         this.activeProject = {
           path: projectPath,
           name: path.basename(projectPath, ".xcodeproj"),
-          isWorkspace: false
+          isWorkspace: false,
+          isSPMProject: false
         };
         return {
           content: [{
@@ -659,6 +663,47 @@ class XcodeServer {
         }
       }
     );
+
+    // Register "swift_package_command"
+    this.server.tool(
+      "swift_package_command",
+      "Executes Swift Package Manager commands in the active project directory.",
+      {
+        command: z.string().describe("The SPM command to execute (e.g., 'build', 'test', 'clean', 'resolve')"),
+        configuration: z.string().optional().describe("Optional build configuration ('debug' or 'release')"),
+        extraArgs: z.string().optional().describe("Additional arguments to pass to the command")
+      },
+      async ({ command, configuration, extraArgs }) => {
+        if (!this.activeProject) throw new ProjectNotFoundError();
+        
+        if (!this.activeProject.isSPMProject) {
+          throw new XcodeServerError("This command can only be used with Swift Package Manager projects.");
+        }
+        
+        const configArg = configuration ? `--configuration ${configuration}` : '';
+        const extraArgsStr = extraArgs || '';
+        
+        try {
+          const cmd = `cd "${this.activeProject.path}" && swift package ${command} ${configArg} ${extraArgsStr}`.trim();
+          const { stdout, stderr } = await execAsync(cmd);
+          return {
+            content: [{
+              type: "text",
+              text: `Swift Package Manager output:\n${stdout}\n${stderr ? 'Error output:\n' + stderr : ''}`
+            }]
+          };
+        } catch (error) {
+          let stderr = '';
+          if (error instanceof Error && 'stderr' in error) {
+            stderr = (error as any).stderr;
+          }
+          throw new CommandExecutionError(
+            `swift package ${command}`,
+            stderr || (error instanceof Error ? error.message : String(error))
+          );
+        }
+      }
+    );
   }
 
   private registerResources() {
@@ -812,9 +857,10 @@ class XcodeServer {
         searchPath = this.config.projectsBaseDir;
       }
       
-      // Find both .xcodeproj and .xcworkspace
+      // Find .xcodeproj, .xcworkspace, and Package.swift files
       const { stdout: projStdout } = await execAsync(`find "${searchPath}" -name "*.xcodeproj"`);
       const { stdout: workspaceStdout } = await execAsync(`find "${searchPath}" -name "*.xcworkspace"`);
+      const { stdout: spmStdout } = await execAsync(`find "${searchPath}" -name "Package.swift"`);
       
       const projects: XcodeProject[] = [];
       
@@ -827,7 +873,8 @@ class XcodeServer {
           projects.push({
             path: projectPath,
             name: path.basename(projectPath, ".xcodeproj"),
-            isWorkspace: false
+            isWorkspace: false,
+            isSPMProject: false
           });
         }
       }
@@ -840,8 +887,25 @@ class XcodeServer {
           path: workspacePath,
           name: path.basename(workspacePath, ".xcworkspace"),
           isWorkspace: true,
+          isSPMProject: false,
           associatedProjectPath: mainProject
         });
+      }
+
+      // Handle SPM projects
+      const spmPaths = spmStdout.split("\n").filter(Boolean);
+      for (const packagePath of spmPaths) {
+        // Skip if this is a Package.swift inside an Xcode project or workspace
+        const isInXcodeProject = await this.isInXcodeProject(packagePath);
+        if (!isInXcodeProject) {
+          projects.push({
+            path: path.dirname(packagePath), // Use the directory containing Package.swift
+            name: path.basename(path.dirname(packagePath)), // Use directory name as project name
+            isWorkspace: false,
+            isSPMProject: true,
+            packageManifestPath: packagePath
+          });
+        }
       }
       
       return projects;
@@ -918,20 +982,46 @@ class XcodeServer {
   }
 
   private async buildProject(configuration: string, scheme: string) {
+    if (!this.activeProject) throw new ProjectNotFoundError();
+    
+    const projectPath = this.activeProject.path;
+    let projectInfo;
+    
     try {
-      if (!this.activeProject) throw new ProjectNotFoundError();
-      
-      const projectPath = this.activeProject.path;
-      let projectInfo;
-      
-      // Different command for workspace vs project
-      if (this.activeProject.isWorkspace) {
+      // Different command for workspace vs project vs SPM
+      if (this.activeProject.isSPMProject) {
+        // For SPM projects, we use swift build
+        const buildConfig = configuration.toLowerCase() === 'release' ? '--configuration release' : '';
+        try {
+          const cmd = `cd "${projectPath}" && swift build ${buildConfig}`;
+          const { stdout, stderr } = await execAsync(cmd);
+          return {
+            content: [{
+              type: "text",
+              text: `Build output:\n${stdout}\n${stderr ? 'Error output:\n' + stderr : ''}`
+            }]
+          };
+        } catch (error) {
+          let stderr = '';
+          if (error instanceof Error && 'stderr' in error) {
+            stderr = (error as any).stderr;
+          }
+          throw new CommandExecutionError(
+            `swift build for ${this.activeProject.name}`,
+            stderr || (error instanceof Error ? error.message : String(error))
+          );
+        }
+      } else if (this.activeProject.isWorkspace) {
         projectInfo = await this.getWorkspaceInfo(projectPath);
       } else {
         projectInfo = await this.getProjectInfo(projectPath);
       }
       
-      // Validate configuration and scheme
+      // For Xcode projects/workspaces, validate configuration and scheme
+      if (!projectInfo) {
+        throw new XcodeServerError("Failed to get project information");
+      }
+      
       if (!projectInfo.configurations.includes(configuration)) {
         throw new XcodeServerError(`Invalid configuration "${configuration}". Available configurations: ${projectInfo.configurations.join(", ")}`);
       }
@@ -939,10 +1029,11 @@ class XcodeServer {
         throw new XcodeServerError(`Invalid scheme "${scheme}". Available schemes: ${projectInfo.schemes.join(", ")}`);
       }
       
+      // Use -workspace for workspace projects, -project for regular projects
+      const projectFlag = this.activeProject.isWorkspace ? `-workspace "${projectPath}"` : `-project "${projectPath}"`;
+      const cmd = `xcodebuild ${projectFlag} -scheme "${scheme}" -configuration "${configuration}" build`;
+      
       try {
-        // Use -workspace for workspace projects, -project for regular projects
-        const projectFlag = this.activeProject.isWorkspace ? `-workspace "${projectPath}"` : `-project "${projectPath}"`;
-        const cmd = `xcodebuild ${projectFlag} -scheme "${scheme}" -configuration "${configuration}" build`;
         const { stdout, stderr } = await execAsync(cmd);
         return {
           content: [{
@@ -955,24 +1046,14 @@ class XcodeServer {
         if (error instanceof Error && 'stderr' in error) {
           stderr = (error as any).stderr;
         }
-        
         throw new CommandExecutionError(
-          `xcodebuild for ${scheme} (${configuration})`, 
+          `xcodebuild for ${scheme} (${configuration})`,
           stderr || (error instanceof Error ? error.message : String(error))
         );
       }
     } catch (error) {
-      if (error instanceof XcodeServerError) {
-        throw error;
-      }
-      
-      if (error instanceof Error) {
-        console.error("Error building project:", error.message);
-        throw new XcodeServerError(`Failed to build project: ${error.message}`);
-      }
-      
-      console.error("Unknown error building project:", error);
-      throw new XcodeServerError(`Failed to build project: ${String(error)}`);
+      console.error("Error building project:", error);
+      throw error;
     }
   }
 
@@ -1287,6 +1368,27 @@ class XcodeServer {
       console.error("Error listing directory:", error);
       throw error; // Re-throw the already specific error
     }
+  }
+
+  private async isInXcodeProject(filePath: string): Promise<boolean> {
+    const dir = path.dirname(filePath);
+    const parentDirs = dir.split(path.sep);
+    
+    // Check each parent directory for .xcodeproj or .xcworkspace
+    while (parentDirs.length > 0) {
+      const currentPath = parentDirs.join(path.sep);
+      try {
+        const entries = await fs.readdir(currentPath);
+        if (entries.some(entry => entry.endsWith('.xcodeproj') || entry.endsWith('.xcworkspace'))) {
+          return true;
+        }
+      } catch {
+        // Ignore read errors, just continue checking
+      }
+      parentDirs.pop();
+    }
+    
+    return false;
   }
 }
 
