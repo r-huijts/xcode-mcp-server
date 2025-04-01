@@ -16,18 +16,27 @@ This document outlines a comprehensive test plan for manually verifying all tool
 1. Create a test directory: `~/XcodeMCPTests`
 2. Create the following test projects:
    ```bash
+   # Create test directory
+   mkdir -p ~/XcodeMCPTests
+   cd ~/XcodeMCPTests
+
    # Regular Xcode project
-   xed --create-project ~/XcodeMCPTests/TestApp
+   # Using Xcode UI: File > New > Project > iOS > App
+   # Or using command line:
+   xcodebuild -create -template "iOS App" -destination "~/XcodeMCPTests/TestApp" -bundleIdentifier "com.test.TestApp" -projectName "TestApp"
    
    # CocoaPods project
-   xed --create-project ~/XcodeMCPTests/PodTestApp
+   # Using Xcode UI: File > New > Project > iOS > App
+   # Or using command line:
+   xcodebuild -create -template "iOS App" -destination "~/XcodeMCPTests/PodTestApp" -bundleIdentifier "com.test.PodTestApp" -projectName "PodTestApp"
    cd ~/XcodeMCPTests/PodTestApp
    pod init
+   echo "platform :ios, '15.0'\n\npod 'Alamofire'" > Podfile
    
    # Swift Package
-   mkdir ~/XcodeMCPTests/TestPackage
+   mkdir -p ~/XcodeMCPTests/TestPackage
    cd ~/XcodeMCPTests/TestPackage
-   swift package init
+   swift package init --type library
    ```
 
 ## Test Cases
