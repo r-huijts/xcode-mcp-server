@@ -94,6 +94,37 @@ For a comprehensive overview of all available tools and their usage, see [Tools 
 
 For detailed usage examples and best practices, see [User Guide](docs/user-guide.md).
 
+## Testing
+
+The project includes a comprehensive testing suite built with Jest. The tests focus on ensuring that tools work as expected by mocking external dependencies like Xcode commands.
+
+### Running Tests
+
+To run all tests:
+```bash
+npm test
+```
+
+To run tests in watch mode during development:
+```bash
+npm run test:watch
+```
+
+### Test Structure
+
+- `tests/utils/`: Test utilities including mocks for child processes and other dependencies
+- `tests/tools/`: Tests for all tool implementations, organized by category
+  - `simulator/`: Tests for simulator tools
+  - `xcode/`: Tests for Xcode tools
+
+### Adding New Tests
+
+When adding new tools, please include corresponding test cases that:
+1. Mock any external dependencies (especially command-line tools)
+2. Verify that the tool is registered correctly
+3. Test the tool's functionality with various inputs
+4. Test error handling
+
 ## Project Structure
 
 ```
@@ -136,6 +167,11 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 3. Commit your changes (`git commit -m 'Add some amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
+
+When contributing new features, please include:
+- Implementation code in the appropriate directory under `src/tools/`
+- Tests for the new functionality
+- Documentation updates as needed
 
 ## License
 
