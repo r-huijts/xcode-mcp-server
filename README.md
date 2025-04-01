@@ -1,113 +1,46 @@
 # Xcode MCP Server
 
-<div align="center">
-  <img src="xcode_icon.svg" width="128" height="128" alt="Xcode MCP Server Icon">
-</div>
+An MCP (Model Context Protocol) server providing Xcode integration for AI assistants. This server enables AI agents to interact with Xcode projects, manage iOS simulators, and perform various Xcode-related tasks.
 
-A Model Context Protocol (MCP) server that brings the power of AI to your Xcode projects. This server acts as a bridge between Claude and your local Xcode development environment, enabling intelligent code assistance, project management, and automated development tasks.
+## Features
 
-<a href="https://glama.ai/mcp/servers/mmxuwmm7sc"><img width="380" height="200" src="https://glama.ai/mcp/servers/mmxuwmm7sc/badge" alt="Xcode Server MCP server" /></a>
-
-## What is Xcode MCP Server?
-
-At its core, this server follows a client-server architecture where Claude can securely interact with your local Xcode projects:
-
-```mermaid
-flowchart LR
-    subgraph "Your Computer"
-        Claude["Claude Desktop"]
-        MCP["Xcode MCP Server"]
-        XP[("Xcode Projects")]
-
-        Claude <-->|"MCP Protocol\n(Commands & Results)"| MCP
-        MCP <-->|"Local Access\n(File & Build Operations)"| XP
-    end
-```
-
-The communication between the Xcode MCP server and your local projects happens entirely on your machine—your code is not exposed to the internet. The Model Context Protocol ensures that Claude can only perform approved operations through well-defined interfaces, giving you a secure way to let AI assist with your development while maintaining complete control.
-
-## MCP Client Compatibility
-
-This server implements the Model Context Protocol (MCP) specification, making it compatible with any MCP-compliant client or host. While the installation instructions focus on Claude Desktop, you can use this server with:
-
-- Self-built MCP clients
-- Cursor AI
-- Other MCP-compatible IDEs and tools
-- Any application that implements the MCP client specification
-
-The standardized protocol ensures consistent functionality across different clients while maintaining the same level of security and local-only operation.
-
-## Key Features
-
-### 🔍 Intelligent Project Detection
-- Automatically finds and connects to your active Xcode project
-- Supports manual project selection for precise control
-- Maintains workspace context across interactions
-
-### 📁 Smart File Operations
-- Read and analyze Swift, Objective-C, and project configuration files
-- Create and modify source files with proper syntax and imports
-- Intelligent file listing with type filtering and search
-
-### 🛠 Project Management
-- Access project targets, configurations, and schemes
-- Analyze source files for potential issues
-- Execute builds with specific configurations
-- Run and manage test suites
+- **Project Management**: Set active projects, get project information
+- **File Operations**: Read/write files within Xcode projects
+- **Build & Testing**: Build projects, run tests, analyze code
+- **CocoaPods Integration**: Manage CocoaPods dependencies
+- **Swift Package Manager**: Initialize and manage Swift packages
+- **iOS Simulator Tools**: List, boot, and shut down iOS simulators
+- **Xcode Utilities**: Execute Xcode commands, compile asset catalogs, trace apps
 
 ## Installation
 
-You can install this server in three ways:
+### Prerequisites
 
-### 1. Using Claude Desktop with NPM Package
+- macOS with Xcode installed
+- Node.js 16 or higher
+- npm or yarn
 
-Update your Claude configuration file (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+### Setup
 
-```json
-{
-  "mcpServers": {
-    "xcode": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "xcode-mcp-server"
-      ],
-      "env": {
-        "PROJECTS_BASE_DIR": "/path/to/your/xcode/projects"
-      }
-    }
-  }
-}
-```
+#### Option 1: Automated Setup (Recommended)
 
-### 2. Global NPM Installation
-
-Install the package globally:
+Use the included setup script which will check prerequisites, install dependencies, build the project, and help you configure the server:
 
 ```bash
-npm install -g @modelcontextprotocol/xcode-server
+# Make the script executable
+chmod +x setup.sh
+
+# Run the setup script
+./setup.sh
 ```
 
-Then update your Claude configuration:
+The script will guide you through the configuration process and can even set up Claude Desktop integration if desired.
 
-```json
-{
-  "mcpServers": {
-    "xcode": {
-      "command": "xcode-server",
-      "env": {
-        "PROJECTS_BASE_DIR": "/path/to/your/xcode/projects"
-      }
-    }
-  }
-}
-```
+#### Option 2: Manual Setup
 
-### 3. From Source
-
-1. Clone this repository:
+1. Clone the repository:
    ```bash
-   git clone https://github.com/r-huijts/xcode-mcp-server.git
+   git clone https://github.com/your-username/xcode-mcp-server.git
    cd xcode-mcp-server
    ```
 
@@ -116,99 +49,99 @@ Then update your Claude configuration:
    npm install
    ```
 
-3. Set up environment variables:
-   ```bash
-   cp .env.example .env
-   ```
-   Edit `.env` and set `PROJECTS_BASE_DIR` to your Xcode projects directory.
-
-4. Build the project:
+3. Build the project:
    ```bash
    npm run build
    ```
 
-Then update your Claude configuration:
+4. Create a configuration file (optional):
+   ```bash
+   cp .env.example .env
+   ```
+   Edit the `.env` file to set your preferred configuration.
 
-```json
-{
-  "mcpServers": {
-    "xcode": {
-      "command": "node",
-      "args": [
-        "/absolute/path/to/xcode-mcp-server/dist/index.js"
-      ],
-      "env": {
-        "PROJECTS_BASE_DIR": "/path/to/your/xcode/projects"
-      }
-    }
-  }
-}
-```
+## Usage
 
-> **Note**: Replace `/path/to/your/xcode/projects` with the actual path to your Xcode projects directory.
+### Starting the Server
 
-After updating the configuration, restart Claude Desktop for the changes to take effect.
-
-## Working with the Server
-
-The server provides a natural interface for Claude to assist with your Xcode development. Here are some ways you can interact:
-
-### Project Navigation
-Ask Claude to:
-- "Set my Xcode projects directory to `/Users/username/Documents/XcodeProjects`"
-- "What's my current active project?"
-- "Switch to the MyApp.xcodeproj project"
-- "Show me all Swift files in the project"
-
-### Code Creation & Modification
-Get help with:
-- "Create a new view called ProfileView with a preview provider"
-- "Add a @Published email property to UserModel.swift"
-- "Set up a modern async/await networking layer"
-- "Implement Core Data models with SwiftUI bindings"
-
-### Project Analysis & Building
-Let Claude assist with:
-- "Analyze NetworkManager.swift for potential issues"
-- "Build the project in Debug configuration"
-- "Run the unit tests for the UserModel module"
-- "What build schemes are available?"
-
-## Development and Debugging
-
-### Building the Project
 ```bash
-npm run build
+npm start
 ```
 
-### Running Tests
+For development mode with automatic restarts:
 ```bash
-npm test
+npm run dev
 ```
 
-### Troubleshooting
-The server provides detailed logging through stderr. Common issues and their solutions:
+### Configuration Options
 
-1. **Project Detection Issues**
-   - Verify your projects directory path
-   - Ensure Xcode Command Line Tools are installed
-   - Check file permissions
+You can configure the server in two ways:
 
-2. **Build Problems**
-   - Validate Xcode installation
-   - Check project configurations
-   - Review build settings
+1. Environment variables in `.env` file:
+   ```
+   PROJECTS_BASE_DIR=/path/to/your/projects
+   DEBUG=true
+   ```
+
+2. Command line arguments:
+   ```bash
+   npm start -- --projects-dir=/path/to/your/projects
+   ```
+
+### Tool Documentation
+
+For a comprehensive overview of all available tools and their usage, see [Tools Overview](docs/tools-overview.md).
+
+For detailed usage examples and best practices, see [User Guide](docs/user-guide.md).
+
+## Project Structure
+
+```
+xcode-mcp-server/
+├── src/
+│   ├── index.ts                 # Entry point
+│   ├── server.ts                # MCP server implementation
+│   ├── types/                   # Type definitions
+│   ├── utils/                   # Utility functions
+│   └── tools/                   # Tool implementations
+│       ├── project/             # Project management tools
+│       ├── file/                # File operation tools
+│       ├── build/               # Build and testing tools
+│       ├── cocoapods/           # CocoaPods integration
+│       ├── spm/                 # Swift Package Manager tools
+│       ├── simulator/           # iOS simulator tools
+│       └── xcode/               # Xcode utilities
+├── docs/                        # Documentation
+├── tests/                       # Tests
+└── dist/                        # Compiled code (generated)
+```
+
+## How It Works
+
+The Xcode MCP server uses the Model Context Protocol to provide a standardized interface for AI models to interact with Xcode projects. The server:
+
+1. Detects and manages Xcode projects
+2. Provides tools for common Xcode operations
+3. Ensures safe file access within project boundaries
+4. Handles different project types (standard, workspace, SPM)
+
+When an AI assistant needs to perform an action on an Xcode project, it sends a request to the MCP server, which executes the appropriate command and returns the results.
 
 ## Contributing
 
-We welcome contributions! Whether it's:
-- 🐛 Bug fixes
-- ✨ New features
-- 📚 Documentation improvements
-- 🧪 Additional tests
+Contributions are welcome! Please feel free to submit a Pull Request.
 
-Feel free to submit a Pull Request.
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- Thanks to the Model Context Protocol team for the MCP SDK
+- Built with TypeScript and Node.js
