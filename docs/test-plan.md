@@ -1,6 +1,6 @@
 # Xcode MCP Server Manual Test Plan
 
-This document outlines a comprehensive test plan for manually verifying all tools in the Xcode MCP Server. Each test case includes prerequisites, steps to execute, and expected results.
+This document outlines a comprehensive test plan for manually verifying all tools in the Xcode MCP Server. Each test case includes prerequisites, steps to execute, expected results, and the natural language queries to use with the AI assistant.
 
 ## Test Environment Setup
 
@@ -10,6 +10,7 @@ This document outlines a comprehensive test plan for manually verifying all tool
 - Node.js 16 or later
 - CocoaPods
 - Git
+- An MCP-compatible AI assistant (e.g., Claude Desktop, Cursor)
 
 ### Test Projects Setup
 1. Create a test directory: `~/XcodeMCPTests`
@@ -38,9 +39,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 - Fresh server installation
 - Test directory created
 
-**Steps:**
-1. Start the server
-2. Set projects base directory to `~/XcodeMCPTests`
+**Query:**
+```
+Can you set my Xcode projects directory to ~/XcodeMCPTests? I want to manage all my test projects from there.
+```
 
 **Expected Result:**
 - Server acknowledges the directory change
@@ -50,8 +52,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 **Prerequisites:**
 - Projects base directory set
 
-**Steps:**
-1. Set active project to `~/XcodeMCPTests/TestApp/TestApp.xcodeproj`
+**Query:**
+```
+Please set the TestApp project as my active project. It's located at ~/XcodeMCPTests/TestApp/TestApp.xcodeproj
+```
 
 **Expected Result:**
 - Server confirms project is set as active
@@ -61,8 +65,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 **Prerequisites:**
 - Active project set
 
-**Steps:**
-1. Request active project information
+**Query:**
+```
+What's my current active project? Can you show me its configuration, targets, and available schemes?
+```
 
 **Expected Result:**
 - Returns project path, targets, build configurations, and schemes
@@ -73,8 +79,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 **Prerequisites:**
 - Active project set to TestApp
 
-**Steps:**
-1. List all Swift files in the project
+**Query:**
+```
+Can you list all Swift files in the current project? I want to see what source files we have.
+```
 
 **Expected Result:**
 - Returns list of Swift files including AppDelegate.swift and SceneDelegate.swift
@@ -83,8 +91,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 **Prerequisites:**
 - Active project set to TestApp
 
-**Steps:**
-1. Read contents of AppDelegate.swift
+**Query:**
+```
+Show me the contents of AppDelegate.swift. I want to see how it's implemented.
+```
 
 **Expected Result:**
 - Returns complete file contents with proper formatting
@@ -93,9 +103,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 **Prerequisites:**
 - Active project set to TestApp
 
-**Steps:**
-1. Create a new file "TestModel.swift" with basic class structure
-2. Verify file exists in project
+**Query:**
+```
+Can you create a new file called TestModel.swift with a basic class structure? It should have some properties and a simple initializer.
+```
 
 **Expected Result:**
 - File is created with specified content
@@ -107,8 +118,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 **Prerequisites:**
 - Active project set to TestApp
 
-**Steps:**
-1. Build project with Debug configuration
+**Query:**
+```
+Please build the project using the Debug configuration. Let me know if there are any issues.
+```
 
 **Expected Result:**
 - Build completes successfully
@@ -119,8 +132,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 - Active project set to TestApp
 - Project has test target
 
-**Steps:**
-1. Run all tests in project
+**Query:**
+```
+Can you run all the tests in the project and show me the results?
+```
 
 **Expected Result:**
 - Tests execute
@@ -130,8 +145,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 **Prerequisites:**
 - Active project set to TestApp
 
-**Steps:**
-1. Analyze AppDelegate.swift
+**Query:**
+```
+Could you analyze AppDelegate.swift for potential issues or improvements?
+```
 
 **Expected Result:**
 - Static analysis results returned
@@ -143,8 +160,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 **Prerequisites:**
 - Active project set to PodTestApp
 
-**Steps:**
-1. Check CocoaPods status
+**Query:**
+```
+Can you check if this project uses CocoaPods and show me what pods are installed?
+```
 
 **Expected Result:**
 - Returns CocoaPods installation status
@@ -155,8 +174,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 - Active project set to PodTestApp
 - Podfile contains `pod 'Alamofire'`
 
-**Steps:**
-1. Run pod install
+**Query:**
+```
+Please run pod install for the current project. I've added Alamofire as a dependency.
+```
 
 **Expected Result:**
 - Pods are installed successfully
@@ -168,8 +189,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 - Active project set to PodTestApp
 - Pods already installed
 
-**Steps:**
-1. Run pod update
+**Query:**
+```
+Could you update all the pods in the project to their latest versions?
+```
 
 **Expected Result:**
 - Pods are updated successfully
@@ -181,8 +204,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 **Prerequisites:**
 - In empty directory
 
-**Steps:**
-1. Initialize new Swift package named "TestLib"
+**Query:**
+```
+Can you initialize a new Swift package named "TestLib"? I want to create a basic library package.
+```
 
 **Expected Result:**
 - Package.swift created
@@ -193,8 +218,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 **Prerequisites:**
 - Active project is Swift package
 
-**Steps:**
-1. Add dependency on Alamofire package
+**Query:**
+```
+Please add Alamofire as a dependency to this package. You can use the latest version from GitHub.
+```
 
 **Expected Result:**
 - Package.swift updated with dependency
@@ -205,8 +232,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 **Prerequisites:**
 - Package has dependencies
 
-**Steps:**
-1. Update all dependencies
+**Query:**
+```
+Could you update all the package dependencies to their latest versions?
+```
 
 **Expected Result:**
 - Dependencies updated
@@ -218,8 +247,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 **Prerequisites:**
 - Xcode installed with simulators
 
-**Steps:**
-1. Request list of available simulators
+**Query:**
+```
+Can you show me a list of all available iOS simulators on my system?
+```
 
 **Expected Result:**
 - Returns JSON list of all available simulators
@@ -229,8 +260,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 **Prerequisites:**
 - Valid simulator UDID from list
 
-**Steps:**
-1. Boot simulator with specified UDID
+**Query:**
+```
+Please boot the simulator with UDID [UDID from previous list]. I need to test something on it.
+```
 
 **Expected Result:**
 - Simulator boots successfully
@@ -240,8 +273,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 **Prerequisites:**
 - Running simulator
 
-**Steps:**
-1. Shutdown simulator with specified UDID
+**Query:**
+```
+Can you shut down the simulator with UDID [UDID of running simulator]? I'm done testing.
+```
 
 **Expected Result:**
 - Simulator shuts down
@@ -253,8 +288,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 **Prerequisites:**
 - Active project set
 
-**Steps:**
-1. Run xcrun with simctl list command
+**Query:**
+```
+Could you run xcrun simctl list to show me the simulator devices in a different format?
+```
 
 **Expected Result:**
 - Command executes successfully
@@ -264,8 +301,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 **Prerequisites:**
 - Project has Assets.xcassets
 
-**Steps:**
-1. Compile asset catalog using actool
+**Query:**
+```
+Can you compile the Assets.xcassets catalog in my project? I need the processed assets for testing.
+```
 
 **Expected Result:**
 - Assets compiled successfully
@@ -275,8 +314,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 **Prerequisites:**
 - Running app process
 
-**Steps:**
-1. Attach LLDB to process
+**Query:**
+```
+I need to debug my running app. Can you attach LLDB to the process named "TestApp"?
+```
 
 **Expected Result:**
 - LLDB attaches successfully
@@ -286,8 +327,10 @@ This document outlines a comprehensive test plan for manually verifying all tool
 **Prerequisites:**
 - Running app
 
-**Steps:**
-1. Capture 5-second trace
+**Query:**
+```
+Could you capture a 5-second performance trace of my app? I want to analyze its behavior.
+```
 
 **Expected Result:**
 - Trace captured successfully
