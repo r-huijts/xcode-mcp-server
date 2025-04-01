@@ -1,6 +1,18 @@
 # Xcode MCP Server Manual Test Plan
 
-This document outlines a comprehensive test plan for manually verifying all tools in the Xcode MCP Server. Each test case includes prerequisites, steps to execute, expected results, and the natural language queries to use with the AI assistant.
+## Test Progress Summary
+✅ = Passed
+❌ = Failed
+⏳ = Not Yet Tested
+
+### Progress by Section
+- Project Management Tools: 3/3 Complete ✅
+- File Operation Tools: 3/3 Complete ✅
+- Build & Testing Tools: 3/3 Complete ✅
+- CocoaPods Integration: ⏳ Not Started
+- Swift Package Manager Tools: ⏳ Not Started
+- Simulator Tools: ⏳ Not Started
+- Xcode Utilities: ⏳ Not Started
 
 ## Test Environment Setup
 
@@ -53,41 +65,34 @@ This document outlines a comprehensive test plan for manually verifying all tool
 
 ### Project Management Tools
 
-#### TC-PM-01: Set Projects Base Directory
+#### TC-PM-01: Set Projects Base Directory ✅
 **Prerequisites:**
 - Fresh server installation
 - Test directory created
 
 **Query:**
 ```
-Can you set my Xcode projects directory to $HOME/XcodeMCPTests? I want to manage all my test projects from there.
+Can you set my Xcode projects directory to ~/XcodeMCPTests? I want to manage all my test projects from there.
 ```
-
-Or using your actual home directory path:
-```
-Can you set my Xcode projects directory to /Users/yourusername/XcodeMCPTests? I want to manage all my test projects from there.
-```
-
-**Note:** Replace `yourusername` with your actual username. The server may not expand the `~` character in paths, so it's better to use either `$HOME` or the full absolute path.
 
 **Expected Result:**
 - Server acknowledges the directory change
 - Server scans and finds all test projects
 
-#### TC-PM-02: Set Active Project
+#### TC-PM-02: Set Active Project ✅
 **Prerequisites:**
 - Projects base directory set
 
 **Query:**
 ```
-Please set the TestApp project as my active project. It's located at $HOME/XcodeMCPTests/TestApp/TestApp.xcodeproj
+Please set the TestApp project as my active project. It's located at ~/XcodeMCPTests/TestApp/TestApp.xcodeproj
 ```
 
 **Expected Result:**
 - Server confirms project is set as active
 - Project information is displayed
 
-#### TC-PM-03: Get Active Project
+#### TC-PM-03: Get Active Project ✅
 **Prerequisites:**
 - Active project set
 
@@ -101,7 +106,7 @@ What's my current active project? Can you show me its configuration, targets, an
 
 ### File Operation Tools
 
-#### TC-FO-01: List Project Files
+#### TC-FO-01: List Project Files ✅
 **Prerequisites:**
 - Active project set to TestApp
 
@@ -113,19 +118,19 @@ Can you list all Swift files in the current project? I want to see what source f
 **Expected Result:**
 - Returns list of Swift files including AppDelegate.swift and SceneDelegate.swift
 
-#### TC-FO-02: Read File
+#### TC-FO-02: Read File ✅
 **Prerequisites:**
 - Active project set to TestApp
 
 **Query:**
 ```
-Show me the contents of AppDelegate.swift. I want to see how it's implemented.
+Show me the contents of ContentView.swift. I want to see how it's implemented.
 ```
 
 **Expected Result:**
 - Returns complete file contents with proper formatting
 
-#### TC-FO-03: Write File
+#### TC-FO-03: Write File ✅
 **Prerequisites:**
 - Active project set to TestApp
 
@@ -140,7 +145,7 @@ Can you create a new file called TestModel.swift with a basic class structure? I
 
 ### Build & Testing Tools
 
-#### TC-BT-01: Build Project
+#### TC-BT-01: Build Project ✅
 **Prerequisites:**
 - Active project set to TestApp
 
@@ -153,7 +158,7 @@ Please build the project using the Debug configuration. Let me know if there are
 - Build completes successfully
 - Build output is returned
 
-#### TC-BT-02: Run Tests
+#### TC-BT-02: Run Tests ✅
 **Prerequisites:**
 - Active project set to TestApp
 - Project has test target
@@ -167,13 +172,13 @@ Can you run all the tests in the project and show me the results?
 - Tests execute
 - Test results are returned
 
-#### TC-BT-03: Analyze File
+#### TC-BT-03: Analyze File ✅
 **Prerequisites:**
 - Active project set to TestApp
 
 **Query:**
 ```
-Could you analyze AppDelegate.swift for potential issues or improvements?
+Could you analyze ContentView.swift for potential issues or improvements?
 ```
 
 **Expected Result:**
@@ -182,7 +187,7 @@ Could you analyze AppDelegate.swift for potential issues or improvements?
 
 ### CocoaPods Integration
 
-#### TC-CP-01: Check CocoaPods
+#### TC-CP-01: Check CocoaPods ⏳
 **Prerequisites:**
 - Active project set to PodTestApp
 
