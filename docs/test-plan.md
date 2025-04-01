@@ -21,14 +21,22 @@ This document outlines a comprehensive test plan for manually verifying all tool
    cd ~/XcodeMCPTests
 
    # Regular Xcode project
-   # Using Xcode UI: File > New > Project > iOS > App
-   # Or using command line:
-   xcodebuild -create -template "iOS App" -destination "~/XcodeMCPTests/TestApp" -bundleIdentifier "com.test.TestApp" -projectName "TestApp"
+   # Using Xcode UI (Recommended):
+   # 1. Open Xcode
+   # 2. File > New > Project
+   # 3. Choose iOS > App
+   # 4. Set Product Name: "TestApp"
+   # 5. Set Organization Identifier: "com.test"
+   # 6. Choose ~/XcodeMCPTests for location
    
    # CocoaPods project
-   # Using Xcode UI: File > New > Project > iOS > App
-   # Or using command line:
-   xcodebuild -create -template "iOS App" -destination "~/XcodeMCPTests/PodTestApp" -bundleIdentifier "com.test.PodTestApp" -projectName "PodTestApp"
+   # Using Xcode UI (Recommended):
+   # 1. Open Xcode
+   # 2. File > New > Project
+   # 3. Choose iOS > App
+   # 4. Set Product Name: "PodTestApp"
+   # 5. Set Organization Identifier: "com.test"
+   # 6. Choose ~/XcodeMCPTests for location
    cd ~/XcodeMCPTests/PodTestApp
    pod init
    echo "platform :ios, '15.0'\n\npod 'Alamofire'" > Podfile
@@ -38,6 +46,8 @@ This document outlines a comprehensive test plan for manually verifying all tool
    cd ~/XcodeMCPTests/TestPackage
    swift package init --type library
    ```
+
+   Note: While there are command-line options for creating Xcode projects (like using templates), the most reliable method is using the Xcode UI. This ensures all project settings and files are created correctly.
 
 ## Test Cases
 
