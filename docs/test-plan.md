@@ -13,12 +13,12 @@ This document outlines a comprehensive test plan for manually verifying all tool
 - An MCP-compatible AI assistant (e.g., Claude Desktop, Cursor)
 
 ### Test Projects Setup
-1. Create a test directory: `~/XcodeMCPTests`
+1. Create a test directory: `$HOME/XcodeMCPTests`
 2. Create the following test projects:
    ```bash
    # Create test directory
-   mkdir -p ~/XcodeMCPTests
-   cd ~/XcodeMCPTests
+   mkdir -p $HOME/XcodeMCPTests
+   cd $HOME/XcodeMCPTests
 
    # Regular Xcode project
    # Using Xcode UI (Recommended):
@@ -27,7 +27,7 @@ This document outlines a comprehensive test plan for manually verifying all tool
    # 3. Choose iOS > App
    # 4. Set Product Name: "TestApp"
    # 5. Set Organization Identifier: "com.test"
-   # 6. Choose ~/XcodeMCPTests for location
+   # 6. Choose $HOME/XcodeMCPTests for location
    
    # CocoaPods project
    # Using Xcode UI (Recommended):
@@ -36,14 +36,14 @@ This document outlines a comprehensive test plan for manually verifying all tool
    # 3. Choose iOS > App
    # 4. Set Product Name: "PodTestApp"
    # 5. Set Organization Identifier: "com.test"
-   # 6. Choose ~/XcodeMCPTests for location
-   cd ~/XcodeMCPTests/PodTestApp
+   # 6. Choose $HOME/XcodeMCPTests for location
+   cd $HOME/XcodeMCPTests/PodTestApp
    pod init
    echo "platform :ios, '15.0'\n\npod 'Alamofire'" > Podfile
    
    # Swift Package
-   mkdir -p ~/XcodeMCPTests/TestPackage
-   cd ~/XcodeMCPTests/TestPackage
+   mkdir -p $HOME/XcodeMCPTests/TestPackage
+   cd $HOME/XcodeMCPTests/TestPackage
    swift package init --type library
    ```
 
@@ -60,8 +60,15 @@ This document outlines a comprehensive test plan for manually verifying all tool
 
 **Query:**
 ```
-Can you set my Xcode projects directory to ~/XcodeMCPTests? I want to manage all my test projects from there.
+Can you set my Xcode projects directory to $HOME/XcodeMCPTests? I want to manage all my test projects from there.
 ```
+
+Or using your actual home directory path:
+```
+Can you set my Xcode projects directory to /Users/yourusername/XcodeMCPTests? I want to manage all my test projects from there.
+```
+
+**Note:** Replace `yourusername` with your actual username. The server may not expand the `~` character in paths, so it's better to use either `$HOME` or the full absolute path.
 
 **Expected Result:**
 - Server acknowledges the directory change
@@ -73,7 +80,7 @@ Can you set my Xcode projects directory to ~/XcodeMCPTests? I want to manage all
 
 **Query:**
 ```
-Please set the TestApp project as my active project. It's located at ~/XcodeMCPTests/TestApp/TestApp.xcodeproj
+Please set the TestApp project as my active project. It's located at $HOME/XcodeMCPTests/TestApp/TestApp.xcodeproj
 ```
 
 **Expected Result:**
