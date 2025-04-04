@@ -13,27 +13,43 @@ The Xcode MCP Server is organized into the following modules:
 - **Swift Package Manager**: Tools for managing Swift Package Manager functionality
 - **Simulator Tools**: Tools for interacting with iOS simulators
 - **Xcode Utilities**: Miscellaneous Xcode-specific tools
+- **Path Management**: System for secure file access and directory navigation
 
 ## Project Management Tools
 
 | Tool | Description |
 |------|-------------|
 | `set_projects_base_dir` | Sets the base directory where Xcode projects are stored |
-| `set_project_path` | Sets the active Xcode project |
+| `set_project_path` | Sets the active Xcode project (xcodeproj, xcworkspace, or SPM) |
 | `get_active_project` | Retrieves detailed information about the active project |
+| `find_projects` | Finds Xcode projects in the specified directory |
+| `get_project_configuration` | Retrieves configuration details for the active project |
+| `detect_active_project` | Attempts to automatically detect the active Xcode project |
+| `change_directory` | Changes the active directory for relative path operations |
+| `push_directory` | Pushes current directory to stack and changes to a new directory |
+| `pop_directory` | Returns to previous directory from stack |
+| `get_current_directory` | Shows the current active directory |
 
-These tools help you navigate and manage Xcode projects. The server attempts to detect the active project automatically when it starts, but you can explicitly set a project using these tools.
+These tools help you navigate and manage Xcode projects. The server supports multiple project types including regular .xcodeproj files, workspaces (.xcworkspace), and Swift Package Manager projects (Package.swift).
 
 ## File Operation Tools
 
 | Tool | Description |
 |------|-------------|
-| `read_file` | Reads the contents of a file in the active project |
-| `write_file` | Writes or updates file content in the active project |
+| `read_file` | Reads the contents of a file within allowed directories |
+| `write_file` | Writes or updates file content within allowed directories |
+| `copy_file` | Copies a file or directory to a new location |
+| `move_file` | Moves a file or directory to a new location |
+| `delete_file` | Deletes a file or directory |
+| `create_directory` | Creates a new directory |
 | `list_project_files` | Lists all files within an Xcode project |
-| `list_directory` | Lists the contents of a directory, showing both files and subdirectories |
+| `list_directory` | Lists directory contents with options for format and hidden files |
+| `get_file_info` | Gets detailed information about a file or directory |
+| `find_files` | Searches for files matching a pattern in a directory |
+| `resolve_path` | Shows how a path would be resolved |
+| `check_file_exists` | Checks if a file or directory exists |
 
-File operation tools allow you to interact with files in your Xcode project. For safety reasons, file paths are restricted to the project directory.
+File operation tools allow you to interact with files securely. All operations use the path management system for validation and security.
 
 ## Build & Testing Tools
 
@@ -51,6 +67,10 @@ Build and testing tools interact with Xcode's build system to compile your proje
 |------|-------------|
 | `pod_install` | Runs 'pod install' in the active project directory |
 | `pod_update` | Runs 'pod update' in the active project directory |
+| `pod_outdated` | Checks for outdated dependencies in the project |
+| `pod_repo_update` | Updates the local CocoaPods spec repositories |
+| `pod_deintegrate` | Removes CocoaPods from the project |
+| `pod_init` | Initializes a new Podfile in the project |
 | `check_cocoapods` | Checks if the active project uses CocoaPods and returns setup information |
 
 CocoaPods tools allow you to manage CocoaPods dependencies in your iOS projects. These tools require CocoaPods to be installed on your system.
@@ -59,12 +79,17 @@ CocoaPods tools allow you to manage CocoaPods dependencies in your iOS projects.
 
 | Tool | Description |
 |------|-------------|
-| `init_swift_package` | Initializes a new Swift Package Manager project |
+| `init_swift_package` | Initializes a new Swift Package Manager project with options for type and testing |
 | `add_swift_package` | Adds a Swift Package dependency to the active project |
-| `update_swift_package` | Updates the dependencies of your Swift project |
+| `update_swift_package` | Updates dependencies with options for specific packages and versions |
 | `swift_package_command` | Executes arbitrary Swift Package Manager commands |
+| `build_swift_package` | Builds a Swift Package with configuration options |
+| `test_swift_package` | Tests a Swift Package with filtering and parallel options |
+| `show_swift_dependencies` | Displays dependency graphs in various formats |
+| `clean_swift_package` | Cleans build artifacts with options for global cache |
+| `dump_swift_package` | Dumps the Package.swift manifest as JSON |
 
-Swift Package Manager tools help you manage Swift packages and dependencies. They interact with the Swift Package Manager CLI.
+Swift Package Manager tools provide comprehensive support for Swift packages and dependencies. They interact with the Swift Package Manager CLI and provide enhanced error reporting.
 
 ## Simulator Tools
 
@@ -73,6 +98,12 @@ Swift Package Manager tools help you manage Swift packages and dependencies. The
 | `list_simulators` | Lists all available iOS simulators |
 | `boot_simulator` | Boots an iOS simulator identified by its UDID |
 | `shutdown_simulator` | Shuts down an active iOS simulator |
+| `install_app` | Installs an app on a simulator |
+| `uninstall_app` | Removes an app from a simulator |
+| `launch_app` | Launches an app on a simulator |
+| `terminate_app` | Terminates a running app on a simulator |
+| `take_screenshot` | Captures a screenshot of a simulator |
+| `record_video` | Records video of simulator activity |
 
 Simulator tools allow you to interact with iOS simulators. They use the `simctl` command-line tool that is part of Xcode.
 
@@ -84,8 +115,30 @@ Simulator tools allow you to interact with iOS simulators. They use the `simctl`
 | `compile_asset_catalog` | Compiles an asset catalog using 'actool' |
 | `run_lldb` | Launches the LLDB debugger with custom arguments |
 | `trace_app` | Captures a performance trace of an application using 'xctrace' |
+| `get_xcode_info` | Retrieves information about the installed Xcode |
+| `generate_app_icons` | Generates an app icon set from a source image |
 
 These utilities provide access to various Xcode command-line tools and debugging functionality.
+
+## Path Management
+
+The server includes a comprehensive path management system that provides:
+
+1. **Security**: File operations are restricted to allowed directories
+2. **Validation**: Paths are validated for reading and writing
+3. **Resolution**: Relative paths are resolved against active directory
+4. **Navigation**: Directory stack for easy navigation
+5. **Boundaries**: Project boundaries are enforced for security
+
+Path management tools include:
+
+| Tool | Description |
+|------|-------------|
+| `change_directory` | Changes the active directory |
+| `push_directory` | Remembers current directory and changes to a new one |
+| `pop_directory` | Returns to previously remembered directory |
+| `get_current_directory` | Shows current active directory |
+| `resolve_path` | Shows how a path would be resolved |
 
 ## How the Tools Interact with Xcode Projects
 
@@ -105,11 +158,16 @@ The server supports different project types:
 - **Workspace projects (`.xcworkspace`)**: For CocoaPods or multi-project setups.
 - **Swift Package Manager projects**: Identified by `Package.swift` files.
 
-For workspace projects, the server attempts to find the main project inside the workspace.
+For workspace projects, the server extracts contained projects and identifies the main project inside the workspace.
 
 ### File Operations
 
-File operations are restricted to the active project directory for safety reasons. The server validates paths before performing file operations.
+All file operations use the path management system:
+
+1. Paths are resolved against the active directory
+2. Paths are validated for security boundaries
+3. Operations are only performed on allowed paths
+4. Detailed error messages are provided for failures
 
 ### Build System Integration
 
@@ -123,8 +181,8 @@ Build tools interact with `xcodebuild` or Swift Package Manager's `swift build` 
 
 The server integrates with both CocoaPods and Swift Package Manager:
 
-- CocoaPods tools manage dependencies in a Podfile.
-- Swift Package Manager tools interact with Package.swift.
+- CocoaPods tools manage dependencies in a Podfile, with support for repo management and outdated dependencies.
+- Swift Package Manager tools provide comprehensive support for Swift packages, including dependency analysis and visualization.
 
 ## Using the Tools
 
@@ -132,9 +190,10 @@ Each tool takes specific parameters and returns text-based results. All tools va
 
 To use the tools effectively:
 
-1. First set the active project if not automatically detected.
-2. Use the appropriate tools based on your project type (regular, workspace, or SPM).
-3. Check the tool descriptions for required parameters.
+1. First set the active project if not automatically detected using `set_project_path`.
+2. Navigate to relevant directories using `change_directory`, `push_directory`, and `pop_directory`.
+3. Use the appropriate tools based on your project type (regular, workspace, or SPM).
+4. Check the tool descriptions for required parameters.
 
 For workspace and CocoaPods projects, the server will automatically detect the project structure and provide appropriate support.
 
@@ -142,6 +201,8 @@ For workspace and CocoaPods projects, the server will automatically detect the p
 
 If you encounter issues:
 
-- Check if the active project is correctly set.
+- Check if the active project is correctly set with `get_active_project`.
+- Verify current directory with `get_current_directory`.
+- For path issues, use `resolve_path` to debug path resolution.
 - For build or test issues, ensure the configuration and scheme are valid.
 - For CocoaPods or SPM issues, verify the package manager is properly set up. 
