@@ -63,10 +63,8 @@
    # 4. Choose $HOME/XcodeMCPTests for location
    # 5. Add TestApp and PodTestApp to the workspace
    
-   # Swift Package
+   # Swift Package directory (for later initialization via the tool)
    mkdir -p $HOME/XcodeMCPTests/TestPackage
-   cd $HOME/XcodeMCPTests/TestPackage
-   swift package init --type library
    
    # Files for testing
    mkdir -p $HOME/XcodeMCPTests/Files
@@ -548,7 +546,7 @@ Deintegrate CocoaPods from my project.
 
 #### TC-SPM-01: Initialize Swift Package
 **Prerequisites:**
-- In empty directory
+- In empty directory: $HOME/XcodeMCPTests/TestPackage
 
 **Query:**
 ```
