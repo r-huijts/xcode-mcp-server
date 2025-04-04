@@ -95,15 +95,19 @@ export class ProjectDirectoryState {
    * Resolve a relative path against the active directory
    */
   resolvePath(relativePath: string): string {
-    const activeDir = this.getActiveDirectory();
+    // First, always expand tildes and environment variables
+    const expandedPath = this.pathManager.expandPath(relativePath);
     
     // If the path is already absolute, return it normalized
-    if (path.isAbsolute(relativePath)) {
-      return this.pathManager.normalizePath(relativePath);
+    if (path.isAbsolute(expandedPath)) {
+      return this.pathManager.normalizePath(expandedPath);
     }
     
+    // Get the active directory
+    const activeDir = this.getActiveDirectory();
+    
     // Resolve against active directory
-    return this.pathManager.joinPaths(activeDir, relativePath);
+    return this.pathManager.joinPaths(activeDir, expandedPath);
   }
   
   /**

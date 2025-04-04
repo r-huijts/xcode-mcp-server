@@ -192,24 +192,24 @@ export function registerProjectTools(server: XcodeServer) {
       try {
         // Use our PathManager to expand and validate the path
         const expandedPath = server.pathManager.expandPath(baseDir);
-        const stats = await fs.stat(expandedPath);
+      const stats = await fs.stat(expandedPath);
         
-        if (!stats.isDirectory()) {
-          throw new Error("Provided baseDir is not a directory");
-        }
+      if (!stats.isDirectory()) {
+        throw new Error("Provided baseDir is not a directory");
+      }
         
         // Update both the server config and PathManager
-        server.config.projectsBaseDir = expandedPath;
+      server.config.projectsBaseDir = expandedPath;
         server.pathManager.setProjectsBaseDir(expandedPath);
         
-        await server.detectActiveProject().catch(console.error);
+      await server.detectActiveProject().catch(console.error);
         
-        return {
-          content: [{
-            type: "text" as const,
-            text: `Projects base directory set to: ${expandedPath}`
-          }]
-        };
+      return {
+        content: [{
+          type: "text" as const,
+          text: `Projects base directory set to: ${expandedPath}`
+        }]
+      };
       } catch (error) {
         throw new Error(`Failed to set projects base directory: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -226,24 +226,33 @@ export function registerProjectTools(server: XcodeServer) {
     },
     async ({ projectPath, setActiveDirectory = true }, _extra) => {
       try {
-        // Use our PathManager to expand and validate the path
-        const resolvedPath = server.directoryState.resolvePath(projectPath);
-        const expandedPath = server.pathManager.validatePathForReading(resolvedPath);
-        const stats = await fs.stat(expandedPath);
+        // IMPORTANT: Always expand the tilde first, before any other path operations
+        const expandedPath = server.pathManager.expandPath(projectPath);
+        
+        // Then handle relative paths if needed
+        const fullPath = path.isAbsolute(expandedPath) 
+          ? expandedPath 
+          : server.directoryState.resolvePath(expandedPath);
+        
+        // Now validate the path
+        const validatedPath = server.pathManager.validatePathForReading(fullPath);
+        
+        // Check if the path exists
+        const stats = await fs.stat(validatedPath);
         
         let isWorkspace = false;
         let isSPMProject = false;
         let projectType = "standard";
         
         // Check project type
-        if (expandedPath.endsWith(".xcworkspace")) {
+        if (validatedPath.endsWith(".xcworkspace")) {
           isWorkspace = true;
           projectType = "workspace";
-        } else if (expandedPath.endsWith(".xcodeproj")) {
+        } else if (validatedPath.endsWith(".xcodeproj")) {
           // Standard Xcode project
         } else {
           // Check if it's a SPM project with Package.swift
-          const packageSwiftPath = path.join(expandedPath, "Package.swift");
+          const packageSwiftPath = path.join(validatedPath, "Package.swift");
           const isSPM = await fileExists(packageSwiftPath);
           if (isSPM) {
             isSPMProject = true;
@@ -255,8 +264,8 @@ export function registerProjectTools(server: XcodeServer) {
         
         // Create the project object
         const projectObj = {
-          path: expandedPath,
-          name: path.basename(expandedPath, path.extname(expandedPath)),
+          path: validatedPath,
+          name: path.basename(validatedPath, path.extname(validatedPath)),
           isWorkspace,
           isSPMProject,
           type: projectType
@@ -267,14 +276,14 @@ export function registerProjectTools(server: XcodeServer) {
         
         // Set active directory to project directory if requested
         if (setActiveDirectory) {
-          const projectDir = path.dirname(expandedPath);
+          const projectDir = path.dirname(validatedPath);
           server.directoryState.setActiveDirectory(projectDir);
         }
         
         return {
           content: [{
             type: "text",
-            text: `Active project set to: ${expandedPath} (${projectType})`
+            text: `Active project set to: ${validatedPath} (${projectType})`
           }]
         };
       } catch (error) {
@@ -292,18 +301,18 @@ export function registerProjectTools(server: XcodeServer) {
     },
     async ({ detailed = false }) => {
       try {
-        if (!server.activeProject) {
-          await server.detectActiveProject();
-        }
+      if (!server.activeProject) {
+        await server.detectActiveProject();
+      }
         
-        if (!server.activeProject) {
-          return { 
-            content: [{ 
-              type: "text" as const, 
-              text: "No active Xcode project detected." 
-            }] 
-          };
-        }
+      if (!server.activeProject) {
+        return { 
+          content: [{ 
+            type: "text" as const, 
+            text: "No active Xcode project detected." 
+          }] 
+        };
+      }
         
         // Get basic project info
         const projectInfo = await getProjectInfo(server.activeProject.path);
@@ -533,9 +542,9 @@ export function registerProjectTools(server: XcodeServer) {
         // Push onto stack and change
         server.directoryState.pushDirectory(resolvedPath);
         
-        return {
-          content: [{
-            type: "text" as const,
+      return { 
+        content: [{ 
+          type: "text" as const, 
             text: `Directory stack pushed, active directory changed to: ${resolvedPath}`
           }]
         };
