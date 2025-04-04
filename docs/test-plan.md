@@ -6,9 +6,9 @@
 ⏳ = Not Yet Tested
 
 ### Progress by Section
-- Project Management Tools: 0/8 Complete ⏳
+- Project Management Tools: 0/9 Complete ⏳
 - File Operation Tools: 0/10 Complete ⏳
-- Path Management Tools: 0/5 Complete ⏳
+- Path Management Tools: 0/6 Complete ⏳
 - Build & Testing Tools: 0/3 Complete ⏳
 - CocoaPods Integration: 0/7 Complete ⏳
 - Swift Package Manager Tools: 0/9 Complete ⏳
@@ -116,39 +116,22 @@ Find all Xcode projects in my projects directory, including workspaces and Swift
 
 **Query:**
 ```
-Please set the TestApp project as my active project. It's located at ~/XcodeMCPTests/TestApp/TestApp.xcodeproj
+Please set the TestApp project as my active project.
 ```
 
 **Expected Result:**
 - Server confirms project is set as active
 - Project information is displayed
 
-#### TC-PM-04: Set Active Project (Workspace)
-**Prerequisites:**
-- Projects base directory set
-
-**Query:**
+**Follow-up Query:**
 ```
-Set the active project to ~/XcodeMCPTests/TestWorkspace.xcworkspace
+Set my active project to ~/XcodeMCPTests/TestApp/TestApp.xcodeproj and open it in Xcode.
 ```
 
 **Expected Result:**
-- Server confirms workspace is set as active
-- Workspace information is displayed
-- Contained projects are listed
-
-#### TC-PM-05: Set Active Project (SPM)
-**Prerequisites:**
-- Projects base directory set
-
-**Query:**
-```
-Set the active project to ~/XcodeMCPTests/TestPackage
-```
-
-**Expected Result:**
-- Server confirms SPM project is set as active
-- Project information is displayed
+- Server confirms project is set as active
+- Project is opened in Xcode
+- Server indicates that the project was opened in Xcode
 
 #### TC-PM-06: Get Active Project (Detailed)
 **Prerequisites:**
@@ -190,6 +173,54 @@ Can you detect which Xcode project I'm currently working on?
 - Server detects the frontmost Xcode project
 - Sets it as active project
 - Returns project information
+
+**Follow-up Prerequisites:**
+- Set active project manually to TestApp
+- Open PodTestApp in Xcode
+
+**Follow-up Query 1:**
+```
+Detect the active project but don't force a redetection.
+```
+
+**Expected Result:**
+- Server respects the manually set project (TestApp)
+- Does not override with the open project in Xcode
+- Returns message indicating using existing project
+
+**Follow-up Query 2:**
+```
+Detect the active project and force a redetection even if one is already set.
+```
+
+**Expected Result:**
+- Server overrides the manual setting
+- Detects the frontmost Xcode project (PodTestApp)
+- Sets it as the active project
+- Returns updated project information
+
+#### TC-PM-09: Handle Invalid Project Paths
+**Prerequisites:**
+- Test directory with projects set up
+
+**Query 1:**
+```
+Set the active project to ~/XcodeMCPTests/PodTestApp/PodTestApp.xcodeproj/project.xcworkspace
+```
+
+**Expected Result:**
+- Server should clean up the path by removing `/project.xcworkspace`
+- Sets project correctly as active project
+- Project info is displayed correctly
+
+**Query 2:**
+```
+Detect the active project.
+```
+
+**Expected Result:**
+- Path format should be correct in the returned information
+- No errors about `/project.xcworkspace` being an invalid project
 
 ### Path Management Tools
 
@@ -259,6 +290,40 @@ Resolve the path ../Resources/images
 - Returns resolved absolute path
 - Indicates read/write permissions for the path
 - Shows active directory and project root
+
+#### TC-PATH-06: Path Handling with Tilde Expansion
+**Prerequisites:**
+- Active project set
+
+**Query 1:**
+```
+Resolve the path ~/XcodeMCPTests/TestApp
+```
+
+**Expected Result:**
+- Tilde is correctly expanded to the home directory
+- Returns proper absolute path
+- Shows permissions information
+
+**Query 2:**
+```
+Resolve the path ~/.bash_profile
+```
+
+**Expected Result:**
+- Tilde is correctly expanded
+- If outside project boundary, security warning is shown
+- Full path information is displayed
+
+**Query 3:**
+```
+Set the active project to ~/XcodeMCPTests/TestApp/TestApp.xcodeproj
+```
+
+**Expected Result:**
+- Tilde is expanded correctly
+- Project is set successfully
+- No errors about invalid path format
 
 ### File Operation Tools
 
