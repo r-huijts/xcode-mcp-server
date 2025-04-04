@@ -20,17 +20,27 @@ The Xcode MCP Server is organized into the following modules:
 | Tool | Description |
 |------|-------------|
 | `set_projects_base_dir` | Sets the base directory where Xcode projects are stored |
-| `set_project_path` | Sets the active Xcode project (xcodeproj, xcworkspace, or SPM) |
+| `set_project_path` | Sets the active Xcode project (xcodeproj, xcworkspace, or SPM); can optionally open the project in Xcode |
 | `get_active_project` | Retrieves detailed information about the active project |
 | `find_projects` | Finds Xcode projects in the specified directory |
 | `get_project_configuration` | Retrieves configuration details for the active project |
-| `detect_active_project` | Attempts to automatically detect the active Xcode project |
+| `detect_active_project` | Detects the active Xcode project with option to respect existing project settings |
 | `change_directory` | Changes the active directory for relative path operations |
 | `push_directory` | Pushes current directory to stack and changes to a new directory |
 | `pop_directory` | Returns to previous directory from stack |
 | `get_current_directory` | Shows the current active directory |
 
 These tools help you navigate and manage Xcode projects. The server supports multiple project types including regular .xcodeproj files, workspaces (.xcworkspace), and Swift Package Manager projects (Package.swift).
+
+### Key Tool Parameters
+
+**`set_project_path`**
+- `projectPath`: Path to the .xcodeproj, .xcworkspace, or directory with Package.swift
+- `setActiveDirectory`: If true (default), sets the active directory to the project directory
+- `openInXcode`: If true, opens the project in Xcode automatically, ensuring alignment between the server and Xcode
+
+**`detect_active_project`**
+- `forceRedetect`: If true, forces rediscovery of open projects in Xcode, otherwise respects existing project settings (default: false)
 
 ## File Operation Tools
 
@@ -112,97 +122,4 @@ Simulator tools allow you to interact with iOS simulators. They use the `simctl`
 | Tool | Description |
 |------|-------------|
 | `run_xcrun` | Executes a specified Xcode tool via 'xcrun' |
-| `compile_asset_catalog` | Compiles an asset catalog using 'actool' |
-| `run_lldb` | Launches the LLDB debugger with custom arguments |
-| `trace_app` | Captures a performance trace of an application using 'xctrace' |
-| `get_xcode_info` | Retrieves information about the installed Xcode |
-| `generate_app_icons` | Generates an app icon set from a source image |
-
-These utilities provide access to various Xcode command-line tools and debugging functionality.
-
-## Path Management
-
-The server includes a comprehensive path management system that provides:
-
-1. **Security**: File operations are restricted to allowed directories
-2. **Validation**: Paths are validated for reading and writing
-3. **Resolution**: Relative paths are resolved against active directory
-4. **Navigation**: Directory stack for easy navigation
-5. **Boundaries**: Project boundaries are enforced for security
-
-Path management tools include:
-
-| Tool | Description |
-|------|-------------|
-| `change_directory` | Changes the active directory |
-| `push_directory` | Remembers current directory and changes to a new one |
-| `pop_directory` | Returns to previously remembered directory |
-| `get_current_directory` | Shows current active directory |
-| `resolve_path` | Shows how a path would be resolved |
-
-## How the Tools Interact with Xcode Projects
-
-### Project Detection
-
-The server attempts to detect the active Xcode project using the following methods:
-
-1. **AppleScript**: Attempts to get the frontmost Xcode project via AppleScript.
-2. **Base Directory Scan**: If a base directory is set, scans for projects there.
-3. **Recent Projects**: Reads recent projects from Xcode defaults.
-
-### Project Types Support
-
-The server supports different project types:
-
-- **Regular `.xcodeproj` projects**: Standard Xcode projects.
-- **Workspace projects (`.xcworkspace`)**: For CocoaPods or multi-project setups.
-- **Swift Package Manager projects**: Identified by `Package.swift` files.
-
-For workspace projects, the server extracts contained projects and identifies the main project inside the workspace.
-
-### File Operations
-
-All file operations use the path management system:
-
-1. Paths are resolved against the active directory
-2. Paths are validated for security boundaries
-3. Operations are only performed on allowed paths
-4. Detailed error messages are provided for failures
-
-### Build System Integration
-
-Build tools interact with `xcodebuild` or Swift Package Manager's `swift build` depending on the project type:
-
-- For regular Xcode projects, it uses `xcodebuild -project`.
-- For workspace projects, it uses `xcodebuild -workspace`.
-- For SPM projects, it uses `swift build`.
-
-### Package Manager Integration
-
-The server integrates with both CocoaPods and Swift Package Manager:
-
-- CocoaPods tools manage dependencies in a Podfile, with support for repo management and outdated dependencies.
-- Swift Package Manager tools provide comprehensive support for Swift packages, including dependency analysis and visualization.
-
-## Using the Tools
-
-Each tool takes specific parameters and returns text-based results. All tools validate their inputs and provide clear error messages if something goes wrong.
-
-To use the tools effectively:
-
-1. First set the active project if not automatically detected using `set_project_path`.
-2. Navigate to relevant directories using `change_directory`, `push_directory`, and `pop_directory`.
-3. Use the appropriate tools based on your project type (regular, workspace, or SPM).
-4. Check the tool descriptions for required parameters.
-
-For workspace and CocoaPods projects, the server will automatically detect the project structure and provide appropriate support.
-
-## Troubleshooting
-
-If you encounter issues:
-
-- Check if the active project is correctly set with `get_active_project`.
-- Verify current directory with `get_current_directory`.
-- For path issues, use `resolve_path` to debug path resolution.
-- For build or test issues, ensure the configuration and scheme are valid.
-- For CocoaPods or SPM issues, verify the package manager is properly set up. 
+| `

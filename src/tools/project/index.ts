@@ -222,9 +222,10 @@ export function registerProjectTools(server: XcodeServer) {
     "Sets the active Xcode project by specifying the path to its .xcodeproj directory.",
     {
       projectPath: z.string().describe("Path to the .xcodeproj directory for the desired project. Supports ~ for home directory and environment variables."),
-      setActiveDirectory: z.boolean().optional().describe("If true, also set the active directory to the project directory")
+      setActiveDirectory: z.boolean().optional().describe("If true, also set the active directory to the project directory"),
+      openInXcode: z.boolean().optional().describe("If true, also open the project in Xcode (default: false)")
     },
-    async ({ projectPath, setActiveDirectory = true }, _extra) => {
+    async ({ projectPath, setActiveDirectory = true, openInXcode = false }, _extra) => {
       try {
         // IMPORTANT: Always expand the tilde first, before any other path operations
         const expandedPath = server.pathManager.expandPath(projectPath);
@@ -237,22 +238,28 @@ export function registerProjectTools(server: XcodeServer) {
         // Now validate the path
         const validatedPath = server.pathManager.validatePathForReading(fullPath);
         
+        // Clean up the path if it ends with project.xcworkspace
+        let cleanedPath = validatedPath;
+        if (cleanedPath.endsWith('/project.xcworkspace')) {
+          cleanedPath = cleanedPath.replace('/project.xcworkspace', '');
+        }
+        
         // Check if the path exists
-        const stats = await fs.stat(validatedPath);
+        const stats = await fs.stat(cleanedPath);
         
         let isWorkspace = false;
         let isSPMProject = false;
         let projectType = "standard";
         
         // Check project type
-        if (validatedPath.endsWith(".xcworkspace")) {
+        if (cleanedPath.endsWith(".xcworkspace")) {
           isWorkspace = true;
           projectType = "workspace";
-        } else if (validatedPath.endsWith(".xcodeproj")) {
+        } else if (cleanedPath.endsWith(".xcodeproj")) {
           // Standard Xcode project
         } else {
           // Check if it's a SPM project with Package.swift
-          const packageSwiftPath = path.join(validatedPath, "Package.swift");
+          const packageSwiftPath = path.join(cleanedPath, "Package.swift");
           const isSPM = await fileExists(packageSwiftPath);
           if (isSPM) {
             isSPMProject = true;
@@ -264,8 +271,8 @@ export function registerProjectTools(server: XcodeServer) {
         
         // Create the project object
         const projectObj = {
-          path: validatedPath,
-          name: path.basename(validatedPath, path.extname(validatedPath)),
+          path: cleanedPath,
+          name: path.basename(cleanedPath, path.extname(cleanedPath)),
           isWorkspace,
           isSPMProject,
           type: projectType
@@ -276,17 +283,42 @@ export function registerProjectTools(server: XcodeServer) {
         
         // Set active directory to project directory if requested
         if (setActiveDirectory) {
-          const projectDir = path.dirname(validatedPath);
+          const projectDir = path.dirname(cleanedPath);
           server.directoryState.setActiveDirectory(projectDir);
         }
+
+        // Open the project in Xcode if requested
+        let xcodeOpenStatus = "";
+        if (openInXcode) {
+          try {
+            // Use AppleScript to tell Xcode to open the project
+            const { promisify } = await import('util');
+            const { exec } = await import('child_process');
+            const execAsyncFn = promisify(exec);
+            
+            await execAsyncFn(`
+              osascript -e '
+                tell application "Xcode"
+                  open "${cleanedPath}"
+                  activate
+                end tell
+              '
+            `);
+            xcodeOpenStatus = " and opened in Xcode";
+          } catch (openError) {
+            console.error("Failed to open project in Xcode:", openError);
+            xcodeOpenStatus = " (failed to open in Xcode)";
+          }
+        }
         
-        return {
-          content: [{
-            type: "text",
-            text: `Active project set to: ${validatedPath} (${projectType})`
-          }]
-        };
+      return {
+        content: [{
+          type: "text",
+            text: `Active project set to: ${cleanedPath} (${projectType})${xcodeOpenStatus}`
+        }]
+      };
       } catch (error) {
+        console.error("Failed to set project path:", error);
         throw new Error(`Failed to set project path: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
@@ -485,8 +517,9 @@ export function registerProjectTools(server: XcodeServer) {
     },
     async ({ directoryPath }, _extra) => {
       try {
-        // First resolve the path (handles relative paths correctly)
-        const resolvedPath = server.directoryState.resolvePath(directoryPath);
+        // Expand tilde first, then resolve the path
+        const expandedPath = server.pathManager.expandPath(directoryPath);
+        const resolvedPath = server.directoryState.resolvePath(expandedPath);
         
         // Validate the path is within allowed boundaries
         server.pathManager.validatePathForReading(resolvedPath);
@@ -527,8 +560,9 @@ export function registerProjectTools(server: XcodeServer) {
     },
     async ({ directoryPath }, _extra) => {
       try {
-        // First resolve the path (handles relative paths correctly)
-        const resolvedPath = server.directoryState.resolvePath(directoryPath);
+        // Expand tilde first, then resolve the path
+        const expandedPath = server.pathManager.expandPath(directoryPath);
+        const resolvedPath = server.directoryState.resolvePath(expandedPath);
         
         // Validate the path is within allowed boundaries
         server.pathManager.validatePathForReading(resolvedPath);
@@ -669,9 +703,24 @@ export function registerProjectTools(server: XcodeServer) {
   server.server.tool(
     "detect_active_project",
     "Attempts to automatically detect the active Xcode project.",
-    {},
-    async () => {
+    {
+      forceRedetect: z.boolean().optional().describe("If true, always try to detect the project even if one is already set (default: false)")
+    },
+    async ({ forceRedetect = false }, _extra) => {
       try {
+        // If we already have an active project and aren't forcing a redetect, just return it
+        if (server.activeProject && !forceRedetect) {
+          const projectInfo = await getProjectInfo(server.activeProject.path);
+          
+          return {
+            content: [{
+              type: "text",
+              text: `Using existing active project: ${server.activeProject.path}\n\n${JSON.stringify({ ...server.activeProject, ...projectInfo }, null, 2)}`
+            }]
+          };
+        }
+        
+        // Otherwise, try to detect the active project
         await server.detectActiveProject();
         
         if (!server.activeProject) {

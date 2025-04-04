@@ -155,26 +155,32 @@ export class XcodeServer {
             console.warn("Active project is outside the configured base directory");
           }
 
-          const isWorkspace = projectPath.endsWith('.xcworkspace');
+          // Clean up path if it's pointing to project.xcworkspace inside an .xcodeproj
+          let cleanedPath = projectPath;
+          if (projectPath.endsWith('/project.xcworkspace')) {
+            cleanedPath = projectPath.replace('/project.xcworkspace', '');
+          }
+
+          const isWorkspace = cleanedPath.endsWith('.xcworkspace');
           let associatedProjectPath;
           
           if (isWorkspace) {
             const { findMainProjectInWorkspace } = await import('./utils/project.js');
-            associatedProjectPath = await findMainProjectInWorkspace(projectPath);
+            associatedProjectPath = await findMainProjectInWorkspace(cleanedPath);
           }
           
           this.activeProject = {
-            path: projectPath,
-            name: path.basename(projectPath, path.extname(projectPath)),
+            path: cleanedPath, // Use the cleaned path
+            name: path.basename(cleanedPath, path.extname(cleanedPath)),
             isWorkspace,
             associatedProjectPath
           };
           
           // Update path manager with active project
-          this.pathManager.setActiveProject(projectPath);
+          this.pathManager.setActiveProject(cleanedPath);
           
           // Set the project root as the active directory
-          const projectRoot = path.dirname(projectPath);
+          const projectRoot = path.dirname(cleanedPath);
           this.directoryState.setActiveDirectory(projectRoot);
           
           return;
@@ -197,13 +203,23 @@ export class XcodeServer {
               }))
             );
             const mostRecent = projectStats.sort((a, b) => b.stats.mtime.getTime() - a.stats.mtime.getTime())[0];
+            
+            // Clean up path if needed
+            let cleanedPath = mostRecent.project.path;
+            if (cleanedPath.endsWith('/project.xcworkspace')) {
+              cleanedPath = cleanedPath.replace('/project.xcworkspace', '');
+              // Update the project object to use the cleaned path
+              mostRecent.project.path = cleanedPath;
+              mostRecent.project.name = path.basename(cleanedPath, path.extname(cleanedPath));
+            }
+            
             this.activeProject = mostRecent.project;
             
             // Update path manager with active project
-            this.pathManager.setActiveProject(mostRecent.project.path);
+            this.pathManager.setActiveProject(cleanedPath);
             
             // Set the project root as the active directory
-            const projectRoot = path.dirname(mostRecent.project.path);
+            const projectRoot = path.dirname(cleanedPath);
             this.directoryState.setActiveDirectory(projectRoot);
             
             return;
@@ -228,26 +244,32 @@ export class XcodeServer {
               console.warn("Recent project is outside the configured base directory");
             }
 
-            const isWorkspace = recentProject.endsWith('.xcworkspace');
+            // Clean up path if needed
+            let cleanedPath = recentProject;
+            if (cleanedPath.endsWith('/project.xcworkspace')) {
+              cleanedPath = cleanedPath.replace('/project.xcworkspace', '');
+            }
+            
+            const isWorkspace = cleanedPath.endsWith('.xcworkspace');
             let associatedProjectPath;
             
             if (isWorkspace) {
               const { findMainProjectInWorkspace } = await import('./utils/project.js');
-              associatedProjectPath = await findMainProjectInWorkspace(recentProject);
+              associatedProjectPath = await findMainProjectInWorkspace(cleanedPath);
             }
             
             this.activeProject = {
-              path: recentProject,
-              name: path.basename(recentProject, path.extname(recentProject)),
+              path: cleanedPath,
+              name: path.basename(cleanedPath, path.extname(cleanedPath)),
               isWorkspace,
               associatedProjectPath
             };
             
             // Update path manager with active project
-            this.pathManager.setActiveProject(recentProject);
+            this.pathManager.setActiveProject(cleanedPath);
             
             // Set the project root as the active directory
-            const projectRoot = path.dirname(recentProject);
+            const projectRoot = path.dirname(cleanedPath);
             this.directoryState.setActiveDirectory(projectRoot);
             
             return;
@@ -271,6 +293,14 @@ export class XcodeServer {
    * Set the active project and update path manager
    */
   public setActiveProject(project: ActiveProject): void {
+    // Clean up path if needed
+    if (project.path.endsWith('/project.xcworkspace')) {
+      const cleanedPath = project.path.replace('/project.xcworkspace', '');
+      // Update the project object to use the cleaned path
+      project.path = cleanedPath;
+      project.name = path.basename(cleanedPath, path.extname(cleanedPath));
+    }
+
     this.activeProject = project;
     this.pathManager.setActiveProject(project.path);
     

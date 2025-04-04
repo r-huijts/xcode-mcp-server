@@ -60,6 +60,28 @@ Or for Swift Package Manager projects:
 Set the active project to /Users/username/Documents/SwiftPackages/MyPackage
 ```
 
+You can also automatically open the project in Xcode when setting it as active:
+
+```
+Set the active project to /Users/username/Documents/XcodeProjects/MyApp.xcodeproj and open it in Xcode
+```
+
+This ensures that your manually set project and what's open in Xcode stay in sync.
+
+### Project Detection
+
+The server can detect the active project opened in Xcode:
+
+```
+Detect the active Xcode project
+```
+
+By default, this command will respect any project you've already set manually. If you want to force it to check what's currently open in Xcode:
+
+```
+Detect the active Xcode project and force redetect even if one is already set
+```
+
 ### Directory Navigation
 
 The server now has improved directory navigation. You can change directories:
@@ -620,8 +642,18 @@ AI: Finally, let's build and test the package to make sure everything works.
 If the server can't find your projects:
 - Make sure the projects directory path is correct
 - Check that the projects have the `.xcodeproj` or `.xcworkspace` extension
-- Try setting the active project path explicitly
+- Try setting the active project path explicitly with `set_project_path`
+- Use the `openInXcode: true` parameter with `set_project_path` to ensure the project is open in Xcode
 - Use the `find_projects` tool to see what projects are detected
+- If `detect_active_project` is finding the wrong project, try using it without the `forceRedetect` parameter to respect your manual settings
+
+### Project Path Mismatch
+
+If you're experiencing issues where `detect_active_project` finds a different project than what you set manually:
+- Use `set_project_path` with the `openInXcode: true` parameter to align what's open in Xcode with your server settings
+- By default, `detect_active_project` will respect your manual settings, but can be overridden with `forceRedetect: true`
+- Check that you're using the complete path to the project, including any subdirectories
+- Ensure that your project path doesn't end with `/project.xcworkspace` which is invalid for Xcode commands
 
 ### Path Resolution Issues
 
