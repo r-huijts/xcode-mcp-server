@@ -138,7 +138,11 @@ async function getProjectConfiguration(projectPath: string): Promise<ProjectConf
     
     // Get project schemes
     try {
-      const { stdout: schemesOutput } = await execAsync(`xcodebuild -project "${projectPath}" -list`);
+      // Determine if this is a workspace or regular project
+      const isWorkspace = projectPath.endsWith('.xcworkspace');
+      const flag = isWorkspace ? '-workspace' : '-project';
+      
+      const { stdout: schemesOutput } = await execAsync(`xcodebuild ${flag} "${projectPath}" -list`);
       
       // Parse schemes
       const schemesMatch = schemesOutput.match(/Schemes:\s+((?:.+\s*)+)/);
@@ -375,7 +379,10 @@ export function registerProjectTools(server: XcodeServer) {
         // Use projects base dir if no directory specified
         let searchDir: string;
         if (directory) {
-          searchDir = server.directoryState.resolvePath(directory);
+          // First, expand any tilde in the path
+          const expandedDir = server.pathManager.expandPath(directory);
+          // Then resolve relative to active directory if needed
+          searchDir = server.directoryState.resolvePath(expandedDir);
         } else {
           const baseDir = server.pathManager.getProjectsBaseDir();
           if (!baseDir) {
