@@ -997,6 +997,196 @@ export function registerProjectTools(server: XcodeServer) {
     }
   );
 
+  // Register "create_workspace"
+  server.server.tool(
+    "create_workspace",
+    "Creates a new Xcode workspace and optionally adds existing projects to it.",
+    {
+      name: z.string().describe("Name of the workspace to create"),
+      outputDirectory: z.string().describe("Directory where the workspace will be created"),
+      projects: z.array(z.string()).optional().describe("Optional array of project paths to add to the workspace"),
+      setAsActive: z.boolean().optional().describe("Whether to set the new workspace as the active project (default: true)")
+    },
+    async ({ name, outputDirectory, projects = [], setAsActive = true }) => {
+      try {
+        // Validate and resolve the output directory
+        const expandedOutputDir = server.pathManager.expandPath(outputDirectory);
+        const resolvedOutputDir = server.directoryState.resolvePath(expandedOutputDir);
+        server.pathManager.validatePathForWriting(resolvedOutputDir);
+
+        // Create the output directory if it doesn't exist
+        await fs.mkdir(resolvedOutputDir, { recursive: true });
+
+        // Create the workspace directory
+        const workspaceName = name.endsWith('.xcworkspace') ? name : `${name}.xcworkspace`;
+        const workspacePath = path.join(resolvedOutputDir, workspaceName);
+        await fs.mkdir(workspacePath, { recursive: true });
+
+        // Create the contents.xcworkspacedata file
+        const contentsPath = path.join(workspacePath, 'contents.xcworkspacedata');
+
+        // Start with the basic XML structure
+        let contentsXml = '<?xml version="1.0" encoding="UTF-8"?>\n';
+        contentsXml += '<Workspace version="1.0">\n';
+
+        // Add projects if provided
+        for (const projectPath of projects) {
+          // Validate and resolve each project path
+          const expandedProjectPath = server.pathManager.expandPath(projectPath);
+          const resolvedProjectPath = server.directoryState.resolvePath(expandedProjectPath);
+          server.pathManager.validatePathForReading(resolvedProjectPath);
+
+          // Check if the project exists
+          try {
+            const stats = await fs.stat(resolvedProjectPath);
+            if (!stats.isDirectory()) {
+              console.error(`Warning: Project path is not a directory: ${resolvedProjectPath}`);
+              continue;
+            }
+          } catch (error) {
+            console.error(`Warning: Cannot access project path: ${resolvedProjectPath}`);
+            continue;
+          }
+
+          // Make the project path relative to the workspace
+          const relativeProjectPath = path.relative(path.dirname(workspacePath), resolvedProjectPath);
+
+          // Add the project reference to the workspace
+          contentsXml += `   <FileRef location="group:${relativeProjectPath}"></FileRef>\n`;
+        }
+
+        // Close the XML structure
+        contentsXml += '</Workspace>\n';
+
+        // Write the contents file
+        await fs.writeFile(contentsPath, contentsXml, 'utf-8');
+
+        // Set as active project if requested
+        if (setAsActive) {
+          const projectObj = {
+            path: workspacePath,
+            name: path.basename(workspacePath, '.xcworkspace'),
+            isWorkspace: true,
+            isSPMProject: false,
+            type: "workspace" as 'standard' | 'workspace' | 'spm'
+          };
+
+          server.setActiveProject(projectObj);
+          server.directoryState.setActiveDirectory(resolvedOutputDir);
+        }
+
+        return {
+          content: [{
+            type: "text",
+            text: `Created new Xcode workspace at: ${workspacePath}\n` +
+                  (projects.length > 0 ? `Added ${projects.length} project(s) to the workspace.\n` : '')
+          }]
+        };
+      } catch (error) {
+        if (error instanceof PathAccessError) {
+          throw new Error(`Access denied: ${error.message}`);
+        } else {
+          throw new Error(`Failed to create workspace: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }
+  );
+
+  // Register "add_project_to_workspace"
+  server.server.tool(
+    "add_project_to_workspace",
+    "Adds an existing project to the active workspace.",
+    {
+      projectPath: z.string().describe("Path to the project to add to the workspace"),
+      workspacePath: z.string().optional().describe("Path to the workspace. If not provided, uses the active workspace.")
+    },
+    async ({ projectPath, workspacePath }) => {
+      try {
+        // Determine which workspace to use
+        let resolvedWorkspacePath: string;
+
+        if (workspacePath) {
+          // Use the provided workspace path
+          const expandedWorkspacePath = server.pathManager.expandPath(workspacePath);
+          resolvedWorkspacePath = server.directoryState.resolvePath(expandedWorkspacePath);
+          server.pathManager.validatePathForWriting(resolvedWorkspacePath);
+        } else if (server.activeProject && server.activeProject.isWorkspace) {
+          // Use the active workspace
+          resolvedWorkspacePath = server.activeProject.path;
+        } else {
+          throw new Error("No active workspace set. Please provide a workspace path or set an active workspace first.");
+        }
+
+        // Validate and resolve the project path
+        const expandedProjectPath = server.pathManager.expandPath(projectPath);
+        const resolvedProjectPath = server.directoryState.resolvePath(expandedProjectPath);
+        server.pathManager.validatePathForReading(resolvedProjectPath);
+
+        // Check if the project exists
+        try {
+          const stats = await fs.stat(resolvedProjectPath);
+          if (!stats.isDirectory()) {
+            throw new Error(`Project path is not a directory: ${resolvedProjectPath}`);
+          }
+        } catch (error) {
+          throw new Error(`Cannot access project path: ${resolvedProjectPath}`);
+        }
+
+        // Check if the workspace exists
+        const contentsPath = path.join(resolvedWorkspacePath, 'contents.xcworkspacedata');
+        let contentsXml: string;
+
+        try {
+          contentsXml = await fs.readFile(contentsPath, 'utf-8');
+        } catch (error) {
+          throw new Error(`Cannot access workspace contents file: ${contentsPath}`);
+        }
+
+        // Make the project path relative to the workspace
+        const relativeProjectPath = path.relative(path.dirname(resolvedWorkspacePath), resolvedProjectPath);
+
+        // Check if the project is already in the workspace
+        if (contentsXml.includes(`location="group:${relativeProjectPath}"`)) {
+          return {
+            content: [{
+              type: "text",
+              text: `Project is already in the workspace: ${resolvedProjectPath}`
+            }]
+          };
+        }
+
+        // Add the project reference to the workspace
+        const insertPoint = contentsXml.lastIndexOf('</Workspace>');
+        if (insertPoint === -1) {
+          throw new Error("Invalid workspace file format");
+        }
+
+        const newContentsXml =
+          contentsXml.substring(0, insertPoint) +
+          `   <FileRef location="group:${relativeProjectPath}"></FileRef>\n` +
+          contentsXml.substring(insertPoint);
+
+        // Write the updated contents file
+        await fs.writeFile(contentsPath, newContentsXml, 'utf-8');
+
+        return {
+          content: [{
+            type: "text",
+            text: `Added project to workspace:\n` +
+                  `Project: ${resolvedProjectPath}\n` +
+                  `Workspace: ${resolvedWorkspacePath}`
+          }]
+        };
+      } catch (error) {
+        if (error instanceof PathAccessError) {
+          throw new Error(`Access denied: ${error.message}`);
+        } else {
+          throw new Error(`Failed to add project to workspace: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }
+  );
+
   // Register "create_xcode_project"
   server.server.tool(
     "create_xcode_project",

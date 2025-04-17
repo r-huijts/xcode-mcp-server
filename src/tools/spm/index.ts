@@ -488,6 +488,376 @@ export function registerSPMTools(server: XcodeServer) {
     }
   );
 
+  // Register "edit_package_swift"
+  server.server.tool(
+    "edit_package_swift",
+    "Directly edit the Package.swift file of the active SPM project. This is useful for making changes that aren't supported by the other SPM tools.",
+    {
+      content: z.string().describe("The new content for the Package.swift file"),
+      packagePath: z.string().optional().describe("Optional path to the Package.swift file. If not provided, uses the active project's Package.swift."),
+      createBackup: z.boolean().optional().describe("Whether to create a backup of the original file (default: true)")
+    },
+    async ({ content, packagePath, createBackup = true }) => {
+      try {
+        // Determine which Package.swift to use
+        let resolvedPackagePath: string;
+
+        if (packagePath) {
+          // Use the provided package path
+          const expandedPackagePath = server.pathManager.expandPath(packagePath);
+          resolvedPackagePath = server.directoryState.resolvePath(expandedPackagePath);
+          server.pathManager.validatePathForWriting(resolvedPackagePath);
+        } else if (server.activeProject && server.activeProject.isSPMProject) {
+          // Use the active project's Package.swift
+          if (server.activeProject.packageManifestPath) {
+            resolvedPackagePath = server.activeProject.packageManifestPath;
+          } else {
+            // Try to find Package.swift in the project directory
+            const projectDir = path.dirname(server.activeProject.path);
+            resolvedPackagePath = path.join(projectDir, "Package.swift");
+          }
+        } else {
+          throw new Error("No active SPM project set. Please provide a package path or set an active SPM project first.");
+        }
+
+        // Validate the package path
+        server.pathManager.validatePathForWriting(resolvedPackagePath);
+
+        // Check if the Package.swift exists
+        try {
+          await fs.access(resolvedPackagePath);
+        } catch {
+          throw new Error(`Package.swift not found at: ${resolvedPackagePath}`);
+        }
+
+        // Create a backup if requested
+        if (createBackup) {
+          const backupPath = `${resolvedPackagePath}.backup`;
+          await fs.copyFile(resolvedPackagePath, backupPath);
+        }
+
+        // Write the new content to the Package.swift file
+        await fs.writeFile(resolvedPackagePath, content, 'utf-8');
+
+        // Run swift package update to resolve dependencies
+        const packageDir = path.dirname(resolvedPackagePath);
+        let updateOutput = '';
+
+        try {
+          const { stdout, stderr } = await execAsync('swift package update', { cwd: packageDir });
+          updateOutput = `\n\nDependencies updated:\n${stdout}${stderr ? '\nUpdate errors:\n' + stderr : ''}`;
+        } catch (error) {
+          let stderr = '';
+          if (error instanceof Error && 'stderr' in error) {
+            stderr = (error as any).stderr;
+          }
+          updateOutput = `\n\nWarning: Failed to update dependencies: ${stderr || (error instanceof Error ? error.message : String(error))}`;
+        }
+
+        return {
+          content: [{
+            type: "text",
+            text: `Successfully updated Package.swift at: ${resolvedPackagePath}` +
+                  (createBackup ? `\nBackup created at: ${resolvedPackagePath}.backup` : '') +
+                  updateOutput
+          }]
+        };
+      } catch (error) {
+        if (error instanceof PathAccessError) {
+          throw new Error(`Access denied: ${error.message}`);
+        } else {
+          throw new Error(`Failed to edit Package.swift: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }
+  );
+
+  // Register "build_spm_package"
+  server.server.tool(
+    "build_spm_package",
+    "Builds a Swift Package Manager package directly using 'swift build' instead of Xcode.",
+    {
+      packagePath: z.string().optional().describe("Optional path to the directory containing Package.swift. If not provided, uses the active project directory."),
+      configuration: z.enum(['debug', 'release']).optional().describe("Build configuration to use (default: debug)"),
+      target: z.string().optional().describe("Specific target to build. If not provided, builds all targets."),
+      verbose: z.boolean().optional().describe("Whether to show verbose output (default: false)")
+    },
+    async ({ packagePath, configuration = 'debug', target, verbose = false }) => {
+      try {
+        // Determine which package directory to use
+        let packageDir: string;
+
+        if (packagePath) {
+          // Use the provided package path
+          const expandedPackagePath = server.pathManager.expandPath(packagePath);
+          packageDir = server.directoryState.resolvePath(expandedPackagePath);
+          server.pathManager.validatePathForReading(packageDir);
+        } else if (server.activeProject && server.activeProject.isSPMProject) {
+          // Use the active project's directory
+          packageDir = path.dirname(server.activeProject.path);
+        } else {
+          // Use the current active directory
+          packageDir = server.directoryState.getActiveDirectory();
+
+          // Check if Package.swift exists in this directory
+          const packageSwiftPath = path.join(packageDir, "Package.swift");
+          try {
+            await fs.access(packageSwiftPath);
+          } catch {
+            throw new Error(`No Package.swift found in the active directory: ${packageDir}`);
+          }
+        }
+
+        // Build the command
+        let cmd = `cd "${packageDir}" && swift build --configuration ${configuration}`;
+
+        // Add target if specified
+        if (target) {
+          cmd += ` --target ${target}`;
+        }
+
+        // Add verbose flag if requested
+        if (verbose) {
+          cmd += ` --verbose`;
+        }
+
+        // Execute the command
+        const { stdout, stderr } = await execAsync(cmd);
+
+        return {
+          content: [{
+            type: "text",
+            text: `Swift package build completed successfully:\n` +
+                  `Configuration: ${configuration}\n` +
+                  (target ? `Target: ${target}\n` : '') +
+                  `\nOutput:\n${stdout}\n${stderr ? 'Error output:\n' + stderr : ''}`
+          }]
+        };
+      } catch (error) {
+        let stderr = '';
+        if (error instanceof Error && 'stderr' in error) {
+          stderr = (error as any).stderr;
+        }
+
+        throw new CommandExecutionError(
+          'swift build',
+          stderr || (error instanceof Error ? error.message : String(error))
+        );
+      }
+    }
+  );
+
+  // Register "test_spm_package"
+  server.server.tool(
+    "test_spm_package",
+    "Runs tests for a Swift Package Manager package directly using 'swift test' instead of Xcode.",
+    {
+      packagePath: z.string().optional().describe("Optional path to the directory containing Package.swift. If not provided, uses the active project directory."),
+      filter: z.string().optional().describe("Filter to run a subset of tests. Format: 'TestTarget[.TestClass[.testMethod]]'."),
+      parallel: z.boolean().optional().describe("Whether to run tests in parallel (default: true)"),
+      verbose: z.boolean().optional().describe("Whether to show verbose output (default: false)")
+    },
+    async ({ packagePath, filter, parallel = true, verbose = false }) => {
+      try {
+        // Determine which package directory to use
+        let packageDir: string;
+
+        if (packagePath) {
+          // Use the provided package path
+          const expandedPackagePath = server.pathManager.expandPath(packagePath);
+          packageDir = server.directoryState.resolvePath(expandedPackagePath);
+          server.pathManager.validatePathForReading(packageDir);
+        } else if (server.activeProject && server.activeProject.isSPMProject) {
+          // Use the active project's directory
+          packageDir = path.dirname(server.activeProject.path);
+        } else {
+          // Use the current active directory
+          packageDir = server.directoryState.getActiveDirectory();
+
+          // Check if Package.swift exists in this directory
+          const packageSwiftPath = path.join(packageDir, "Package.swift");
+          try {
+            await fs.access(packageSwiftPath);
+          } catch {
+            throw new Error(`No Package.swift found in the active directory: ${packageDir}`);
+          }
+        }
+
+        // Build the command
+        let cmd = `cd "${packageDir}" && swift test`;
+
+        // Add filter if specified
+        if (filter) {
+          cmd += ` --filter "${filter}"`;
+        }
+
+        // Add parallel flag if requested
+        if (parallel) {
+          cmd += ` --parallel`;
+        }
+
+        // Add verbose flag if requested
+        if (verbose) {
+          cmd += ` --verbose`;
+        }
+
+        // Execute the command
+        const { stdout, stderr } = await execAsync(cmd);
+
+        return {
+          content: [{
+            type: "text",
+            text: `Swift package tests completed successfully:\n` +
+                  (filter ? `Filter: ${filter}\n` : '') +
+                  `\nOutput:\n${stdout}\n${stderr ? 'Error output:\n' + stderr : ''}`
+          }]
+        };
+      } catch (error) {
+        let stderr = '';
+        if (error instanceof Error && 'stderr' in error) {
+          stderr = (error as any).stderr;
+        }
+
+        // Check for test failures
+        if (stderr && stderr.includes('failed')) {
+          return {
+            content: [{
+              type: "text",
+              text: `Swift package tests failed:\n${stderr}`
+            }]
+          };
+        }
+
+        throw new CommandExecutionError(
+          'swift test',
+          stderr || (error instanceof Error ? error.message : String(error))
+        );
+      }
+    }
+  );
+
+  // Register "get_package_info"
+  server.server.tool(
+    "get_package_info",
+    "Gets detailed information about a Swift Package Manager package.",
+    {
+      packagePath: z.string().optional().describe("Optional path to the directory containing Package.swift. If not provided, uses the active project directory.")
+    },
+    async ({ packagePath }) => {
+      try {
+        // Determine which package directory to use
+        let packageDir: string;
+
+        if (packagePath) {
+          // Use the provided package path
+          const expandedPackagePath = server.pathManager.expandPath(packagePath);
+          packageDir = server.directoryState.resolvePath(expandedPackagePath);
+          server.pathManager.validatePathForReading(packageDir);
+        } else if (server.activeProject && server.activeProject.isSPMProject) {
+          // Use the active project's directory
+          packageDir = path.dirname(server.activeProject.path);
+        } else {
+          // Use the current active directory
+          packageDir = server.directoryState.getActiveDirectory();
+
+          // Check if Package.swift exists in this directory
+          const packageSwiftPath = path.join(packageDir, "Package.swift");
+          try {
+            await fs.access(packageSwiftPath);
+          } catch {
+            throw new Error(`No Package.swift found in the active directory: ${packageDir}`);
+          }
+        }
+
+        // Get the Package.swift content
+        const packageSwiftPath = path.join(packageDir, "Package.swift");
+        const packageSwiftContent = await fs.readFile(packageSwiftPath, 'utf-8');
+
+        // Get the package dependencies
+        const dependencies = await extractDependenciesFromPackageSwift(packageSwiftPath);
+
+        // Check for Package.resolved
+        const packageResolvedPath = path.join(packageDir, "Package.resolved");
+        let resolvedDependencies: ResolvedDependency[] = [];
+
+        try {
+          await fs.access(packageResolvedPath);
+          resolvedDependencies = await parsePackageResolved(packageResolvedPath);
+        } catch {
+          // Package.resolved doesn't exist, which is fine
+        }
+
+        // Get package targets using swift package dump-package
+        let packageDump: any = {};
+        try {
+          const { stdout } = await execAsync(`cd "${packageDir}" && swift package dump-package`);
+          packageDump = JSON.parse(stdout);
+        } catch (error) {
+          console.error("Error dumping package:", error);
+        }
+
+        // Get package tools version
+        let toolsVersion = "unknown";
+        const toolsVersionMatch = packageSwiftContent.match(/\/\/\s*swift-tools-version:\s*([\d\.]+)/);
+        if (toolsVersionMatch && toolsVersionMatch[1]) {
+          toolsVersion = toolsVersionMatch[1];
+        }
+
+        // Compile the package info
+        const packageInfo = {
+          name: packageDump.name || path.basename(packageDir),
+          toolsVersion,
+          packagePath: packageSwiftPath,
+          dependencies,
+          resolvedDependencies,
+          targets: packageDump.targets || [],
+          products: packageDump.products || [],
+          platforms: packageDump.platforms || []
+        };
+
+        return {
+          content: [{
+            type: "text",
+            text: `Swift Package Information:\n` +
+                  `Name: ${packageInfo.name}\n` +
+                  `Tools Version: ${packageInfo.toolsVersion}\n` +
+                  `Package Path: ${packageInfo.packagePath}\n\n` +
+                  `Dependencies (${dependencies.length}):\n` +
+                  (dependencies.length > 0 ?
+                    dependencies.map(dep => `- ${dep.name} (${dep.url}) @ ${dep.requirement}`).join('\n') :
+                    "No dependencies") +
+                  `\n\n` +
+                  `Resolved Dependencies (${resolvedDependencies.length}):\n` +
+                  (resolvedDependencies.length > 0 ?
+                    resolvedDependencies.map(dep => `- ${dep.name} (${dep.url}) @ ${dep.version}`).join('\n') :
+                    "No resolved dependencies") +
+                  `\n\n` +
+                  `Targets (${packageInfo.targets.length}):\n` +
+                  (packageInfo.targets.length > 0 ?
+                    packageInfo.targets.map((target: any) => `- ${target.name} (${target.type})`).join('\n') :
+                    "No targets") +
+                  `\n\n` +
+                  `Products (${packageInfo.products.length}):\n` +
+                  (packageInfo.products.length > 0 ?
+                    packageInfo.products.map((product: any) => `- ${product.name} (${product.type})`).join('\n') :
+                    "No products") +
+                  `\n\n` +
+                  `Platforms:\n` +
+                  (packageInfo.platforms.length > 0 ?
+                    packageInfo.platforms.map((platform: any) => `- ${platform.platformName} ${platform.version}`).join('\n') :
+                    "No platform restrictions")
+          }]
+        };
+      } catch (error) {
+        if (error instanceof PathAccessError) {
+          throw new Error(`Access denied: ${error.message}`);
+        } else {
+          throw new Error(`Failed to get package info: ${error instanceof Error ? error.message : String(error)}`);
+        }
+      }
+    }
+  );
+
   // Register "update_swift_package"
   server.server.tool(
     "update_swift_package",
