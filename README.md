@@ -124,7 +124,7 @@ Follow these steps for manual installation:
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/your-username/xcode-mcp-server.git
+   git clone https://github.com/r-huijts/xcode-mcp-server.git
    cd xcode-mcp-server
    ```
 
