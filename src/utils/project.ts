@@ -16,9 +16,9 @@ export async function findXcodeProjects(searchPath = "."): Promise<XcodeProject[
     const { stdout: projStdout } = await execAsync(`find "${searchPath}" -name "*.xcodeproj"`);
     const { stdout: workspaceStdout } = await execAsync(`find "${searchPath}" -name "*.xcworkspace"`);
     const { stdout: spmStdout } = await execAsync(`find "${searchPath}" -name "Package.swift"`);
-    
+
     const projects: XcodeProject[] = [];
-    
+
     // Handle regular projects
     const projectPaths = projStdout.split("\n").filter(Boolean);
     for (const projectPath of projectPaths) {
@@ -33,18 +33,30 @@ export async function findXcodeProjects(searchPath = "."): Promise<XcodeProject[
         });
       }
     }
-    
+
     // Handle workspaces
     const workspacePaths = workspaceStdout.split("\n").filter(Boolean);
     for (const workspacePath of workspacePaths) {
-      const mainProject = await findMainProjectInWorkspace(workspacePath);
-      projects.push({
-        path: workspacePath,
-        name: path.basename(workspacePath, ".xcworkspace"),
-        isWorkspace: true,
-        isSPMProject: false,
-        associatedProjectPath: mainProject
-      });
+      try {
+        const mainProject = await findMainProjectInWorkspace(workspacePath);
+        projects.push({
+          path: workspacePath,
+          name: path.basename(workspacePath, ".xcworkspace"),
+          isWorkspace: true,
+          isSPMProject: false,
+          associatedProjectPath: mainProject
+        });
+      } catch (error) {
+        // If there's an error finding the main project, still add the workspace
+        // but without an associated project
+        console.error(`Error processing workspace ${workspacePath}:`, error);
+        projects.push({
+          path: workspacePath,
+          name: path.basename(workspacePath, ".xcworkspace"),
+          isWorkspace: true,
+          isSPMProject: false
+        });
+      }
     }
 
     // Handle SPM projects
@@ -62,7 +74,7 @@ export async function findXcodeProjects(searchPath = "."): Promise<XcodeProject[
         });
       }
     }
-    
+
     return projects;
   } catch (error) {
     console.error("Error finding projects:", error);
@@ -84,17 +96,45 @@ export async function isProjectInWorkspace(projectPath: string): Promise<boolean
  */
 export async function findMainProjectInWorkspace(workspacePath: string): Promise<string | undefined> {
   try {
+    // Check if the workspace path exists
+    try {
+      await fs.access(workspacePath);
+    } catch (error) {
+      console.error(`Workspace path does not exist: ${workspacePath}`);
+      return undefined;
+    }
+
     // Read workspace contents
     const contentsPath = path.join(workspacePath, 'contents.xcworkspacedata');
-    const contents = await fs.readFile(contentsPath, 'utf-8');
-    
-    // Look for the main project reference
-    const projectMatch = contents.match(/location = "group:([^"]+\.xcodeproj)"/);
-    if (projectMatch) {
-      const projectRelPath = projectMatch[1];
-      return path.resolve(path.dirname(workspacePath), projectRelPath);
+
+    // Check if the contents file exists
+    try {
+      await fs.access(contentsPath);
+    } catch (error) {
+      console.error(`Workspace contents file does not exist: ${contentsPath}`);
+      return undefined;
     }
-    
+
+    const contents = await fs.readFile(contentsPath, 'utf-8');
+
+    // Look for the main project reference
+    // Try multiple patterns that might be used in workspace files
+    const patterns = [
+      /location = "group:([^"]+\.xcodeproj)"/,  // Standard format
+      /location="group:([^"]+\.xcodeproj)"/,     // Alternative format without space
+      /<FileRef location="group:([^"]+\.xcodeproj)"/, // FileRef format
+      /<FileRef location="container:([^"]+\.xcodeproj)"/ // Container format
+    ];
+
+    for (const pattern of patterns) {
+      const projectMatch = contents.match(pattern);
+      if (projectMatch) {
+        const projectRelPath = projectMatch[1];
+        return path.resolve(path.dirname(workspacePath), projectRelPath);
+      }
+    }
+
+    console.error(`No project reference found in workspace: ${workspacePath}`);
     return undefined;
   } catch (error) {
     console.error("Error finding main project in workspace:", error);
@@ -109,7 +149,7 @@ export async function getProjectInfo(projectPath: string): Promise<ProjectInfo> 
   try {
     // Determine the right command based on the project path type
     let cmd: string;
-    
+
     if (projectPath.endsWith('.xcworkspace')) {
       // For workspaces, use -workspace flag
       cmd = `xcodebuild -list -workspace "${projectPath}"`;
@@ -138,7 +178,7 @@ export async function getProjectInfo(projectPath: string): Promise<ProjectInfo> 
         cmd = `xcodebuild -list -project "${projectPath}"`;
       }
     }
-    
+
     const { stdout } = await execAsync(cmd);
     const info: ProjectInfo = {
       path: projectPath,
@@ -174,7 +214,7 @@ export async function getWorkspaceInfo(workspacePath: string): Promise<ProjectIn
   try {
     // Handle different path formats
     let cmd: string;
-    
+
     if (workspacePath.endsWith('.xcworkspace')) {
       // Standard workspace
       cmd = `xcodebuild -workspace "${workspacePath}" -list`;
@@ -187,7 +227,7 @@ export async function getWorkspaceInfo(workspacePath: string): Promise<ProjectIn
       // Default to treating it as a workspace
       cmd = `xcodebuild -workspace "${workspacePath}" -list`;
     }
-    
+
     const { stdout } = await execAsync(cmd);
     const info: ProjectInfo = {
       path: workspacePath,
@@ -222,4 +262,4 @@ export async function getWorkspaceInfo(workspacePath: string): Promise<ProjectIn
 export async function findProjectByName(name: string, searchPath = "."): Promise<XcodeProject | undefined> {
   const projects = await findXcodeProjects(searchPath);
   return projects.find(p => p.name === name);
-} 
+}

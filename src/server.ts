@@ -203,8 +203,14 @@ export class XcodeServer {
           let associatedProjectPath;
 
           if (isWorkspace) {
-            const { findMainProjectInWorkspace } = await import('./utils/project.js');
-            associatedProjectPath = await findMainProjectInWorkspace(cleanedPath);
+            try {
+              const { findMainProjectInWorkspace } = await import('./utils/project.js');
+              associatedProjectPath = await findMainProjectInWorkspace(cleanedPath);
+            } catch (error) {
+              console.error(`Error finding main project in workspace ${cleanedPath}:`,
+                error instanceof Error ? error.message : String(error));
+              // Continue without associatedProjectPath
+            }
           }
 
           this.activeProject = {
@@ -292,8 +298,14 @@ export class XcodeServer {
             let associatedProjectPath;
 
             if (isWorkspace) {
-              const { findMainProjectInWorkspace } = await import('./utils/project.js');
-              associatedProjectPath = await findMainProjectInWorkspace(cleanedPath);
+              try {
+                const { findMainProjectInWorkspace } = await import('./utils/project.js');
+                associatedProjectPath = await findMainProjectInWorkspace(cleanedPath);
+              } catch (error) {
+                console.error(`Error finding main project in workspace ${cleanedPath}:`,
+                  error instanceof Error ? error.message : String(error));
+                // Continue without associatedProjectPath
+              }
             }
 
             this.activeProject = {
