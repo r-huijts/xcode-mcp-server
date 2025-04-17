@@ -132,9 +132,18 @@ export function registerBuildTools(server: XcodeServer) {
         const workingDir = server.directoryState.getActiveDirectory();
 
         // Construct the base command
-        const projectFlag = server.activeProject.isWorkspace ?
-          `-workspace "${server.activeProject.path}"` :
-          `-project "${server.activeProject.path}"`;
+        let projectFlag;
+        const projectPath = server.activeProject.path;
+
+        // Check if the path ends with .xcworkspace (workspace) or .xcodeproj (project)
+        if (projectPath.endsWith('.xcworkspace')) {
+          projectFlag = `-workspace "${projectPath}"`;
+        } else if (projectPath.endsWith('.xcodeproj')) {
+          projectFlag = `-project "${projectPath}"`;
+        } else {
+          // Fall back to the server's detection mechanism
+          projectFlag = server.activeProject.isWorkspace ? `-workspace "${projectPath}"` : `-project "${projectPath}"`;
+        }
 
         const schemeArg = scheme ? `-scheme "${scheme}"` : "";
 
@@ -191,9 +200,18 @@ export function registerBuildTools(server: XcodeServer) {
         const workingDir = server.directoryState.getActiveDirectory();
 
         // Construct the base command
-        const projectFlag = server.activeProject.isWorkspace ?
-          `-workspace "${server.activeProject.path}"` :
-          `-project "${server.activeProject.path}"`;
+        let projectFlag;
+        const projectPath = server.activeProject.path;
+
+        // Check if the path ends with .xcworkspace (workspace) or .xcodeproj (project)
+        if (projectPath.endsWith('.xcworkspace')) {
+          projectFlag = `-workspace "${projectPath}"`;
+        } else if (projectPath.endsWith('.xcodeproj')) {
+          projectFlag = `-project "${projectPath}"`;
+        } else {
+          // Fall back to the server's detection mechanism
+          projectFlag = server.activeProject.isWorkspace ? `-workspace "${projectPath}"` : `-project "${projectPath}"`;
+        }
 
         // Request schemes in a more structured format
         const cmd = `cd "${workingDir}" && xcodebuild ${projectFlag} -list -json`;
@@ -299,9 +317,18 @@ export function registerBuildTools(server: XcodeServer) {
         }
 
         // Construct the base command
-        const projectFlag = server.activeProject.isWorkspace ?
-          `-workspace "${server.activeProject.path}"` :
-          `-project "${server.activeProject.path}"`;
+        let projectFlag;
+        const projectPath = server.activeProject.path;
+
+        // Check if the path ends with .xcworkspace (workspace) or .xcodeproj (project)
+        if (projectPath.endsWith('.xcworkspace')) {
+          projectFlag = `-workspace "${projectPath}"`;
+        } else if (projectPath.endsWith('.xcodeproj')) {
+          projectFlag = `-project "${projectPath}"`;
+        } else {
+          // Fall back to the server's detection mechanism
+          projectFlag = server.activeProject.isWorkspace ? `-workspace "${projectPath}"` : `-project "${projectPath}"`;
+        }
 
         // Add configuration if provided
         const configFlag = configuration ? `-configuration "${configuration}"` : "";
@@ -390,9 +417,18 @@ export function registerBuildTools(server: XcodeServer) {
         }
 
         // Construct the base command
-        const projectFlag = server.activeProject.isWorkspace ?
-          `-workspace "${server.activeProject.path}"` :
-          `-project "${server.activeProject.path}"`;
+        let projectFlag;
+        const projectPath = server.activeProject.path;
+
+        // Check if the path ends with .xcworkspace (workspace) or .xcodeproj (project)
+        if (projectPath.endsWith('.xcworkspace')) {
+          projectFlag = `-workspace "${projectPath}"`;
+        } else if (projectPath.endsWith('.xcodeproj')) {
+          projectFlag = `-project "${projectPath}"`;
+        } else {
+          // Fall back to the server's detection mechanism
+          projectFlag = server.activeProject.isWorkspace ? `-workspace "${projectPath}"` : `-project "${projectPath}"`;
+        }
 
         // Add destination if provided
         const destinationFlag = destination ? `-destination "${destination}"` : "";
@@ -560,9 +596,18 @@ async function analyzeFile(server: XcodeServer, filePath: string, options: { sdk
     }
 
     // Build the analyze command
-    const projectFlag = server.activeProject.isWorkspace ?
-      `-workspace "${server.activeProject.path}"` :
-      `-project "${server.activeProject.path}"`;
+    let projectFlag;
+    const projectPath = server.activeProject.path;
+
+    // Check if the path ends with .xcworkspace (workspace) or .xcodeproj (project)
+    if (projectPath.endsWith('.xcworkspace')) {
+      projectFlag = `-workspace "${projectPath}"`;
+    } else if (projectPath.endsWith('.xcodeproj')) {
+      projectFlag = `-project "${projectPath}"`;
+    } else {
+      // Fall back to the server's detection mechanism
+      projectFlag = server.activeProject.isWorkspace ? `-workspace "${projectPath}"` : `-project "${projectPath}"`;
+    }
 
     // Get the active directory from ProjectDirectoryState for the working directory
     const workingDir = server.directoryState.getActiveDirectory();
@@ -715,7 +760,18 @@ async function buildProject(server: XcodeServer, configuration: string, scheme: 
     }
 
     // Use -workspace for workspace projects, -project for regular projects
-    const projectFlag = server.activeProject.isWorkspace ? `-workspace "${projectPath}"` : `-project "${projectPath}"`;
+    // Check if the file exists and has the correct extension
+    let projectFlag;
+
+    // Check if the path ends with .xcworkspace (workspace) or .xcodeproj (project)
+    if (projectPath.endsWith('.xcworkspace')) {
+      projectFlag = `-workspace "${projectPath}"`;
+    } else if (projectPath.endsWith('.xcodeproj')) {
+      projectFlag = `-project "${projectPath}"`;
+    } else {
+      // Fall back to the server's detection mechanism
+      projectFlag = server.activeProject.isWorkspace ? `-workspace "${projectPath}"` : `-project "${projectPath}"`;
+    }
 
     // Handle destination or SDK specification
     let destinationOrSdkFlag = '';
@@ -814,9 +870,18 @@ async function runTests(server: XcodeServer, options: {
     const workingDir = server.directoryState.getActiveDirectory();
 
     // Build the command with all the provided options
-    const projectFlag = server.activeProject.isWorkspace ?
-      `-workspace "${server.activeProject.path}"` :
-      `-project "${server.activeProject.path}"`;
+    let projectFlag;
+    const projectPath = server.activeProject.path;
+
+    // Check if the path ends with .xcworkspace (workspace) or .xcodeproj (project)
+    if (projectPath.endsWith('.xcworkspace')) {
+      projectFlag = `-workspace "${projectPath}"`;
+    } else if (projectPath.endsWith('.xcodeproj')) {
+      projectFlag = `-project "${projectPath}"`;
+    } else {
+      // Fall back to the server's detection mechanism
+      projectFlag = server.activeProject.isWorkspace ? `-workspace "${projectPath}"` : `-project "${projectPath}"`;
+    }
 
     // If scheme is provided, use it, otherwise we need to figure out a scheme
     let schemeFlag = '';
