@@ -205,7 +205,7 @@ async function getProjectConfiguration(projectPath: string): Promise<ProjectConf
         result.defaultConfiguration = defaultConfigMatch[1];
       }
     } catch (error) {
-      console.warn(`Failed to get project schemes: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(`Failed to get project schemes: ${error instanceof Error ? error.message : String(error)}`);
     }
 
     return result;
@@ -437,7 +437,7 @@ export function registerProjectTools(server: XcodeServer) {
               infoWithActiveDir.defaultConfiguration = config.defaultConfiguration;
             }
           } catch (error) {
-            console.warn(`Error getting detailed project info: ${error instanceof Error ? error.message : String(error)}`);
+            console.error(`Error getting detailed project info: ${error instanceof Error ? error.message : String(error)}`);
             infoWithActiveDir.detailedInfoError = String(error);
           }
         }
@@ -499,7 +499,7 @@ export function registerProjectTools(server: XcodeServer) {
                 .map(packagePath => path.dirname(packagePath));
             }
           } catch (error) {
-            console.warn(`Error finding SPM projects: ${error instanceof Error ? error.message : String(error)}`);
+            console.error(`Error finding SPM projects: ${error instanceof Error ? error.message : String(error)}`);
           }
         }
 

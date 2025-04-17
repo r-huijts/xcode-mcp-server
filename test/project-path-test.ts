@@ -7,7 +7,7 @@ import { getProjectInfo, getWorkspaceInfo } from '../src/utils/project.js';
  * Test various project path formats
  */
 async function testProjectPaths() {
-  console.log('Testing project path handling...');
+  console.error('Testing project path handling...');
   
   // Test cases with various path formats
   const testCases = [
@@ -29,7 +29,7 @@ async function testProjectPaths() {
   const originalExecAsync = (global as any).execAsync;
   
   (global as any).execAsync = async (cmd: string) => {
-    console.log(`Command that would be executed: ${cmd}`);
+    console.error(`Command that would be executed: ${cmd}`);
     // Return mock data so the function can continue
     return {
       stdout: 'Mock stdout\nTargets:\nMockTarget\nBuild Configurations:\nDebug\nRelease\nSchemes:\nMockScheme'
@@ -37,9 +37,9 @@ async function testProjectPaths() {
   };
   
   // Test getProjectInfo with each case
-  console.log('\n--- Testing getProjectInfo ---');
+  console.error('\n--- Testing getProjectInfo ---');
   for (const testCase of testCases) {
-    console.log(`\nTesting: ${testCase.description}`);
+    console.error(`\nTesting: ${testCase.description}`);
     try {
       // We don't need the actual result, we just want to see what command is constructed
       await getProjectInfo(testCase.path);
@@ -49,9 +49,9 @@ async function testProjectPaths() {
   }
   
   // Test getWorkspaceInfo with each case
-  console.log('\n--- Testing getWorkspaceInfo ---');
+  console.error('\n--- Testing getWorkspaceInfo ---');
   for (const testCase of testCases) {
-    console.log(`\nTesting: ${testCase.description}`);
+    console.error(`\nTesting: ${testCase.description}`);
     try {
       // We don't need the actual result, we just want to see what command is constructed
       await getWorkspaceInfo(testCase.path);
@@ -66,5 +66,5 @@ async function testProjectPaths() {
 
 // Run the tests
 testProjectPaths()
-  .then(() => console.log('\nTests completed'))
+  .then(() => console.error('\nTests completed'))
   .catch(error => console.error(`Test failed: ${error.message}`)); 

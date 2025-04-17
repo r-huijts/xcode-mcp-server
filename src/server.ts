@@ -34,7 +34,7 @@ export class XcodeServer {
   public config: ServerConfig = {};
   public activeProject: ActiveProject | null = null;
   public projectFiles: Map<string, string[]> = new Map();
-  
+
   // Our new path management instances
   public pathManager: PathManager;
   public fileOperations: SafeFileOperations;
@@ -145,14 +145,14 @@ export class XcodeServer {
             end tell
           '
         `);
-        
+
         if (frontmostProject && frontmostProject.trim()) {
           const projectPath = frontmostProject.trim();
-          
+
           // Using our new path manager to check boundaries
-          if (this.config.projectsBaseDir && 
+          if (this.config.projectsBaseDir &&
               !this.pathManager.isPathWithin(this.config.projectsBaseDir, projectPath)) {
-            console.warn("Active project is outside the configured base directory");
+            console.error("Active project is outside the configured base directory");
           }
 
           // Clean up path if it's pointing to project.xcworkspace inside an .xcodeproj
@@ -163,31 +163,31 @@ export class XcodeServer {
 
           const isWorkspace = cleanedPath.endsWith('.xcworkspace');
           let associatedProjectPath;
-          
+
           if (isWorkspace) {
             const { findMainProjectInWorkspace } = await import('./utils/project.js');
             associatedProjectPath = await findMainProjectInWorkspace(cleanedPath);
           }
-          
+
           this.activeProject = {
             path: cleanedPath, // Use the cleaned path
             name: path.basename(cleanedPath, path.extname(cleanedPath)),
             isWorkspace,
             associatedProjectPath
           };
-          
+
           // Update path manager with active project
           this.pathManager.setActiveProject(cleanedPath);
-          
+
           // Set the project root as the active directory
           const projectRoot = path.dirname(cleanedPath);
           this.directoryState.setActiveDirectory(projectRoot);
-          
+
           return;
         }
       } catch (error) {
         // Just log and continue with fallback methods
-        console.warn("Could not detect active Xcode project via AppleScript:", 
+        console.error("Could not detect active Xcode project via AppleScript:",
           error instanceof Error ? error.message : String(error));
       }
 
@@ -203,7 +203,7 @@ export class XcodeServer {
               }))
             );
             const mostRecent = projectStats.sort((a, b) => b.stats.mtime.getTime() - a.stats.mtime.getTime())[0];
-            
+
             // Clean up path if needed
             let cleanedPath = mostRecent.project.path;
             if (cleanedPath.endsWith('/project.xcworkspace')) {
@@ -212,20 +212,20 @@ export class XcodeServer {
               mostRecent.project.path = cleanedPath;
               mostRecent.project.name = path.basename(cleanedPath, path.extname(cleanedPath));
             }
-            
+
             this.activeProject = mostRecent.project;
-            
+
             // Update path manager with active project
             this.pathManager.setActiveProject(cleanedPath);
-            
+
             // Set the project root as the active directory
             const projectRoot = path.dirname(cleanedPath);
             this.directoryState.setActiveDirectory(projectRoot);
-            
+
             return;
           }
         } catch (error) {
-          console.warn("Error scanning projects directory:", 
+          console.error("Error scanning projects directory:",
             error instanceof Error ? error.message : String(error));
         }
       }
@@ -237,11 +237,11 @@ export class XcodeServer {
           const projectMatch = recentProjects.match(/= \\"([^"]+)"/);
           if (projectMatch) {
             const recentProject = projectMatch[1];
-            
+
             // Using our new path manager to check boundaries
-            if (this.config.projectsBaseDir && 
+            if (this.config.projectsBaseDir &&
                 !this.pathManager.isPathWithin(this.config.projectsBaseDir, recentProject)) {
-              console.warn("Recent project is outside the configured base directory");
+              console.error("Recent project is outside the configured base directory");
             }
 
             // Clean up path if needed
@@ -249,41 +249,41 @@ export class XcodeServer {
             if (cleanedPath.endsWith('/project.xcworkspace')) {
               cleanedPath = cleanedPath.replace('/project.xcworkspace', '');
             }
-            
+
             const isWorkspace = cleanedPath.endsWith('.xcworkspace');
             let associatedProjectPath;
-            
+
             if (isWorkspace) {
               const { findMainProjectInWorkspace } = await import('./utils/project.js');
               associatedProjectPath = await findMainProjectInWorkspace(cleanedPath);
             }
-            
+
             this.activeProject = {
               path: cleanedPath,
               name: path.basename(cleanedPath, path.extname(cleanedPath)),
               isWorkspace,
               associatedProjectPath
             };
-            
+
             // Update path manager with active project
             this.pathManager.setActiveProject(cleanedPath);
-            
+
             // Set the project root as the active directory
             const projectRoot = path.dirname(cleanedPath);
             this.directoryState.setActiveDirectory(projectRoot);
-            
+
             return;
           }
         }
       } catch (error) {
-        console.warn("Error reading Xcode defaults:", 
+        console.error("Error reading Xcode defaults:",
           error instanceof Error ? error.message : String(error));
       }
-      
+
       // If we've tried all methods and found nothing
       throw new ProjectNotFoundError("No active Xcode project found. Please open a project in Xcode or set one explicitly.");
     } catch (error) {
-      console.error("Error detecting active project:", 
+      console.error("Error detecting active project:",
         error instanceof Error ? error.message : String(error));
       throw error;
     }
@@ -303,7 +303,7 @@ export class XcodeServer {
 
     this.activeProject = project;
     this.pathManager.setActiveProject(project.path);
-    
+
     // Set the project root as the active directory
     const projectRoot = path.dirname(project.path);
     this.directoryState.setActiveDirectory(projectRoot);
@@ -315,16 +315,36 @@ export class XcodeServer {
   public async start() {
     try {
       console.error("Starting Xcode MCP Server...");
+      console.error("Node.js version:", process.version);
+      console.error("Current working directory:", process.cwd());
+      console.error("Projects base directory:", this.config.projectsBaseDir || "Not set");
+
+      // Check if we can access the projects directory
+      if (this.config.projectsBaseDir) {
+        try {
+          await fs.access(this.config.projectsBaseDir);
+          console.error("Projects directory exists and is accessible");
+        } catch (err) {
+          console.error("Warning: Cannot access projects directory:", err instanceof Error ? err.message : String(err));
+        }
+      }
+
+      // Initialize transport with error handling
+      console.error("Initializing StdioServerTransport...");
       const transport = new StdioServerTransport();
+
+      // Connect with detailed logging
+      console.error("Connecting to transport...");
       await this.server.connect(transport);
-      console.error("Xcode MCP Server started");
+      console.error("Xcode MCP Server started successfully");
     } catch (error) {
       if (error instanceof Error) {
         console.error("Failed to start server:", error.message);
+        console.error("Error stack:", error.stack);
         throw new XcodeServerError(`Server initialization failed: ${error.message}`);
       }
       console.error("Unknown error starting server:", error);
       throw new XcodeServerError(`Server initialization failed: ${String(error)}`);
     }
   }
-} 
+}

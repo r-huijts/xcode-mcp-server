@@ -845,7 +845,7 @@ export function registerFileTools(server: XcodeServer) {
           const { stdout, stderr } = await execAsync(findCmd);
 
           if (stderr) {
-            console.warn(`Warning from find command: ${stderr}`);
+            console.error(`Warning from find command: ${stderr}`);
           }
 
           let files = stdout.trim().split('\n').filter(Boolean);
@@ -1314,7 +1314,7 @@ async function writeProjectFile(server: XcodeServer, filePath: string, content: 
       try {
         await updateProjectReferences(projectRoot, absolutePath);
       } catch (updateError) {
-        console.warn(`Warning: Could not update project references: ${updateError instanceof Error ? updateError.message : String(updateError)}`);
+        console.error(`Warning: Could not update project references: ${updateError instanceof Error ? updateError.message : String(updateError)}`);
         // Continue despite reference update failure
       }
 
@@ -1394,7 +1394,7 @@ async function updateProjectReferences(projectRoot: string, filePath: string) {
       .then(entries => entries.find(e => e.endsWith(".xcodeproj")));
 
     if (!projectDirName) {
-      console.warn("Could not find .xcodeproj directory in project root");
+      console.error("Could not find .xcodeproj directory in project root");
       return;
     }
 
@@ -1405,7 +1405,7 @@ async function updateProjectReferences(projectRoot: string, filePath: string) {
     try {
       await fs.access(pbxprojPath);
     } catch {
-      console.warn("Could not find project.pbxproj file");
+      console.error("Could not find project.pbxproj file");
       return;
     }
 
@@ -1417,13 +1417,13 @@ async function updateProjectReferences(projectRoot: string, filePath: string) {
 
     // Simple check if the file path is already in the project file
     if (pbxprojContent.includes(relativeFilePath)) {
-      console.log(`File ${relativeFilePath} is already referenced in the project`);
+      console.error(`File ${relativeFilePath} is already referenced in the project`);
       return;
     }
 
     // For now, we'll just notify that the file needs to be added manually
     // In the future, we could use a library like simple-plist or xcode to modify the project file
-    console.log(`New file created at ${relativeFilePath}. You may need to add it to the project in Xcode manually.`);
+    console.error(`New file created at ${relativeFilePath}. You may need to add it to the project in Xcode manually.`);
 
     // Create a temporary AppleScript to add the file to the project
     // This is a more advanced approach that requires Xcode to be running
@@ -1432,7 +1432,7 @@ async function updateProjectReferences(projectRoot: string, filePath: string) {
       const { stdout: isRunning } = await execAsync('pgrep -x Xcode || echo "not running"');
 
       if (isRunning.trim() === 'not running') {
-        console.log('Xcode is not running. Cannot automatically add file to project.');
+        console.error('Xcode is not running. Cannot automatically add file to project.');
         return;
       }
 
@@ -1460,9 +1460,9 @@ async function updateProjectReferences(projectRoot: string, filePath: string) {
       // Just clean up the temporary file
       await fs.unlink(tempScriptPath);
     } catch (error) {
-      console.warn('Failed to create AppleScript for adding file:', error);
+      console.error('Failed to create AppleScript for adding file:', error);
     }
   } catch (error) {
-    console.warn(`Error updating project references: ${error instanceof Error ? error.message : String(error)}`);
+    console.error(`Error updating project references: ${error instanceof Error ? error.message : String(error)}`);
   }
 }

@@ -17,6 +17,9 @@
     "build": "tsc && chmod +x dist/index.js",
     "prepare": "npm run build",
     "watch": "tsc --watch",
+    "start": "node dist/index.js",
+    "dev": "tsc && node dist/index.js",
+    "debug": "DEBUG=true node --trace-warnings dist/index.js",
     "inspector": "npx @modelcontextprotocol/inspector dist/index.js"
   },
   "keywords": [
@@ -43,7 +46,7 @@
     "node": ">=16.0.0"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.8.0",
+    "@modelcontextprotocol/sdk": "^1.9.0",
     "@types/glob": "^8.1.0",
     "glob": "^11.0.1",
     "zod": "^3.24.2",
