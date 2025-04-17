@@ -3,7 +3,9 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { exec } from "child_process";
 import { promisify } from "util";
 import * as fs from "fs/promises";
+import * as fsSync from "fs";
 import * as path from "path";
+import * as os from "os";
 import * as dotenv from "dotenv";
 
 import { ServerConfig, ActiveProject } from "./types/index.js";
@@ -41,12 +43,39 @@ export class XcodeServer {
   public directoryState: ProjectDirectoryState;
 
   constructor(config: ServerConfig = {}) {
-    // Use environment variable for projects base directory
-    if (process.env.PROJECTS_BASE_DIR) {
-      config.projectsBaseDir = process.env.PROJECTS_BASE_DIR;
-      console.error(`Using projects base directory from env: ${config.projectsBaseDir}`);
-    }
+    // Start with default config
     this.config = { ...this.config, ...config };
+
+    // Use environment variable for projects base directory if not explicitly provided
+    if (!this.config.projectsBaseDir && process.env.PROJECTS_BASE_DIR) {
+      this.config.projectsBaseDir = process.env.PROJECTS_BASE_DIR;
+      console.error(`Using projects base directory from env: ${this.config.projectsBaseDir}`);
+    }
+
+    // If still no projects base directory, try some sensible defaults
+    if (!this.config.projectsBaseDir) {
+      // Common locations for Xcode projects
+      const possibleDirs = [
+        path.join(os.homedir(), 'Documents'),
+        path.join(os.homedir(), 'Projects'),
+        path.join(os.homedir(), 'Developer'),
+        path.join(os.homedir(), 'Documents/XcodeProjects'),
+        path.join(os.homedir(), 'Documents/Projects')
+      ];
+
+      // Use the first directory that exists
+      for (const dir of possibleDirs) {
+        try {
+          if (fsSync.existsSync(dir)) {
+            this.config.projectsBaseDir = dir;
+            console.error(`No projects base directory specified, using default: ${dir}`);
+            break;
+          }
+        } catch (error) {
+          // Ignore errors and try the next directory
+        }
+      }
+    }
 
     // Initialize our path management system
     this.pathManager = new PathManager(this.config);
@@ -73,10 +102,18 @@ export class XcodeServer {
     this.registerAllTools();
     this.registerResources();
 
-    // Attempt to auto-detect an active project, but don't fail if none found
-    this.detectActiveProject().catch((error) => {
-      console.error("Note: No active project detected -", error.message);
-    });
+    // Attempt to auto-detect an active project with more robust handling
+    this.detectActiveProject()
+      .then(project => {
+        if (project) {
+          console.error(`Successfully detected active project: ${project.name} (${project.path})`);
+        } else {
+          console.error("No active project detected automatically. Use set_project_path to set one.");
+        }
+      })
+      .catch((error) => {
+        console.error("Error detecting active project:", error.message);
+      });
   }
 
   private registerAllTools() {
@@ -130,8 +167,9 @@ export class XcodeServer {
 
   /**
    * Detect an active Xcode project
+   * @returns The detected active project or null if none found
    */
-  public async detectActiveProject(): Promise<void> {
+  public async detectActiveProject(): Promise<ActiveProject | null> {
     try {
       // Attempt to get the frontmost Xcode project via AppleScript.
       try {
@@ -183,7 +221,7 @@ export class XcodeServer {
           const projectRoot = path.dirname(cleanedPath);
           this.directoryState.setActiveDirectory(projectRoot);
 
-          return;
+          return this.activeProject;
         }
       } catch (error) {
         // Just log and continue with fallback methods
@@ -222,7 +260,7 @@ export class XcodeServer {
             const projectRoot = path.dirname(cleanedPath);
             this.directoryState.setActiveDirectory(projectRoot);
 
-            return;
+            return this.activeProject;
           }
         } catch (error) {
           console.error("Error scanning projects directory:",
@@ -272,7 +310,7 @@ export class XcodeServer {
             const projectRoot = path.dirname(cleanedPath);
             this.directoryState.setActiveDirectory(projectRoot);
 
-            return;
+            return this.activeProject;
           }
         }
       } catch (error) {
@@ -281,7 +319,8 @@ export class XcodeServer {
       }
 
       // If we've tried all methods and found nothing
-      throw new ProjectNotFoundError("No active Xcode project found. Please open a project in Xcode or set one explicitly.");
+      console.error("No active Xcode project found. Please open a project in Xcode or set one explicitly.");
+      return null;
     } catch (error) {
       console.error("Error detecting active project:",
         error instanceof Error ? error.message : String(error));
