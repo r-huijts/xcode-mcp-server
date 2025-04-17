@@ -12,16 +12,15 @@ echo -e "${GREEN}======================================${NC}"
 echo
 
 # Check if running on macOS
-if [[ "$(uname)" != "Darwin" ]]; then
+if [[ "$OSTYPE" != "darwin"* ]]; then
   echo -e "${RED}Error: This script must be run on macOS.${NC}"
   exit 1
 fi
 
 # Check for Xcode installation
 echo -e "Checking Xcode installation..."
-if ! xcode-select -p &> /dev/null; then
-  echo -e "${RED}Error: Xcode or Xcode Command Line Tools are not installed.${NC}"
-  echo -e "Please install Xcode from the App Store or run 'xcode-select --install' to install the Command Line Tools."
+if ! command -v xcodebuild &> /dev/null; then
+  echo -e "${RED}Error: Xcode is not installed. Please install Xcode from the App Store.${NC}"
   exit 1
 else
   echo -e "${GREEN}✓ Xcode is installed${NC}"
@@ -52,6 +51,52 @@ if ! command -v npm &> /dev/null; then
 else
   NPM_VERSION=$(npm -v)
   echo -e "${GREEN}✓ npm v$NPM_VERSION is installed${NC}"
+fi
+
+# Check for Ruby
+echo -e "Checking Ruby installation..."
+if ! command -v ruby &> /dev/null; then
+  echo -e "${RED}Error: Ruby is not installed.${NC}"
+  echo -e "Ruby is required for CocoaPods installation. Please install Ruby."
+  exit 1
+else
+  echo -e "${GREEN}✓ Ruby is installed${NC}"
+fi
+
+# Check for CocoaPods
+echo -e "Checking CocoaPods installation..."
+if ! command -v pod &> /dev/null; then
+  echo -e "${YELLOW}Warning: CocoaPods is not installed.${NC}"
+  echo -e "CocoaPods is required for some test cases.${NC}"
+  echo -e "To install CocoaPods, run:${NC}"
+  echo -e "    ${YELLOW}sudo gem install cocoapods${NC}"
+  echo -e "After installation, run:${NC}"
+  echo -e "    ${YELLOW}pod setup${NC}"
+  echo
+  read -p "Would you like to install CocoaPods now? (y/n) " -n 1 -r
+  echo
+  if [[ $REPLY =~ ^[Yy]$ ]]; then
+    echo -e "${GREEN}Installing CocoaPods...${NC}"
+    sudo gem install cocoapods || { echo -e "${RED}Failed to install CocoaPods.${NC}"; exit 1; }
+    pod setup || { echo -e "${YELLOW}pod setup failed. You may need to run it manually later.${NC}"; }
+    echo -e "${GREEN}CocoaPods installed successfully${NC}"
+  else
+    echo -e "${YELLOW}Skipping CocoaPods installation. Note that some test cases may fail without it.${NC}"
+  fi
+else
+  echo -e "${GREEN}✓ CocoaPods is installed${NC}"
+  
+  # Check for common CocoaPods issues
+  if gem list | grep -q "ffi.*extensions are not built"; then
+    echo -e "${YELLOW}Warning: The 'ffi' gem has issues.${NC}"
+    echo -e "To fix this, run:${NC}"
+    echo -e "    ${YELLOW}sudo gem pristine ffi --version 1.15.5${NC}"
+    read -p "Would you like to fix this now? (y/n) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      sudo gem pristine ffi --version 1.15.5 || { echo -e "${YELLOW}Failed to fix ffi gem. You may need to run the command manually.${NC}"; }
+    fi
+  fi
 fi
 
 # Install dependencies
