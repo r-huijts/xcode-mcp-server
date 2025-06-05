@@ -118,12 +118,10 @@ export async function findMainProjectInWorkspace(workspacePath: string): Promise
     const contents = await fs.readFile(contentsPath, 'utf-8');
 
     // Look for the main project reference
-    // Try multiple patterns that might be used in workspace files
+    // Allow optional spaces around '=' and support both group and container references
     const patterns = [
-      /location = "group:([^"]+\.xcodeproj)"/,  // Standard format
-      /location="group:([^"]+\.xcodeproj)"/,     // Alternative format without space
-      /<FileRef location="group:([^"]+\.xcodeproj)"/, // FileRef format
-      /<FileRef location="container:([^"]+\.xcodeproj)"/ // Container format
+      /location\s*=\s*"(?:group|container):([^"]+\.xcodeproj)"/, // Inline location attribute
+      /<FileRef\s+location\s*=\s*"(?:group|container):([^"]+\.xcodeproj)"/ // FileRef element
     ];
 
     for (const pattern of patterns) {
