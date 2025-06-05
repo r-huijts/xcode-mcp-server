@@ -113,8 +113,11 @@ async function parseWorkspaceDocument(workspacePath: string): Promise<string[]> 
     // 3. Self-closing format: <FileRef location="group:path/to/project.xcodeproj"/>
     // 4. Container format: <FileRef location="container:path/to/project.xcodeproj"/>
 
-    // Pattern 1 & 2: location group attribute
-    const locationRegex = /location\s+group:?=?"([^"]+)"/g;
+    // Pattern 1 & 2: location attribute allowing optional spaces around '='
+    // Examples:
+    //   location="group:MyProj.xcodeproj"
+    //   location = "container:MyProj.xcodeproj"
+    const locationRegex = /location\s*=\s*"(?:group|container):([^"]+)"/g;
     let match;
 
     while ((match = locationRegex.exec(xmlContent)) !== null) {
@@ -129,10 +132,11 @@ async function parseWorkspaceDocument(workspacePath: string): Promise<string[]> 
     }
 
     // Pattern 3 & 4: FileRef with location attribute
-    const fileRefRegex = /<FileRef\s+location="(group|container):([^"]+)"\/>/g;
+    // Self-closing FileRef element
+    const fileRefRegex = /<FileRef\s+location\s*=\s*"(?:group|container):([^"]+)"\s*\/>/g;
 
     while ((match = fileRefRegex.exec(xmlContent)) !== null) {
-      const relativePath = match[2];
+      const relativePath = match[1];
       if (relativePath.endsWith(".xcodeproj")) {
         // Resolve the path relative to the workspace
         const absolutePath = path.resolve(path.dirname(workspacePath), relativePath);
@@ -143,10 +147,11 @@ async function parseWorkspaceDocument(workspacePath: string): Promise<string[]> 
     }
 
     // Pattern 5: Full XML format with FileRef element
-    const fileRefXmlRegex = /<FileRef\s+location="(group|container):([^"]+)"\s*>[\s\S]*?<\/FileRef>/g;
+    // FileRef element with separate closing tag
+    const fileRefXmlRegex = /<FileRef\s+location\s*=\s*"(?:group|container):([^"]+)"\s*>[\s\S]*?<\/FileRef>/g;
 
     while ((match = fileRefXmlRegex.exec(xmlContent)) !== null) {
-      const relativePath = match[2];
+      const relativePath = match[1];
       if (relativePath.endsWith(".xcodeproj")) {
         // Resolve the path relative to the workspace
         const absolutePath = path.resolve(path.dirname(workspacePath), relativePath);
@@ -1146,7 +1151,9 @@ export function registerProjectTools(server: XcodeServer) {
         const relativeProjectPath = path.relative(path.dirname(resolvedWorkspacePath), resolvedProjectPath);
 
         // Check if the project is already in the workspace
-        if (contentsXml.includes(`location="group:${relativeProjectPath}"`)) {
+        const escapedPath = relativeProjectPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const duplicateRegex = new RegExp(`<FileRef\\s+location\\s*=\\s*\"(?:group|container):${escapedPath}\"`);
+        if (duplicateRegex.test(contentsXml)) {
           return {
             content: [{
               type: "text",
