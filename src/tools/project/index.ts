@@ -1151,7 +1151,9 @@ export function registerProjectTools(server: XcodeServer) {
         const relativeProjectPath = path.relative(path.dirname(resolvedWorkspacePath), resolvedProjectPath);
 
         // Check if the project is already in the workspace
-        if (contentsXml.includes(`location="group:${relativeProjectPath}"`)) {
+        const escapedPath = relativeProjectPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const duplicateRegex = new RegExp(`<FileRef\\s+location\\s*=\\s*\"(?:group|container):${escapedPath}\"`);
+        if (duplicateRegex.test(contentsXml)) {
           return {
             content: [{
               type: "text",
