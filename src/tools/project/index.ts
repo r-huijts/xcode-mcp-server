@@ -3,7 +3,7 @@ import * as fs from "fs/promises";
 import * as fsSync from "fs";
 import * as path from "path";
 import { promisify } from "util";
-import { exec } from "child_process";
+import { exec, execFile } from "child_process";
 import { XcodeServer } from "../../server.js";
 import { getProjectInfo } from "../../utils/project.js";
 import { ProjectNotFoundError, PathAccessError, FileOperationError, CommandExecutionError } from "../../utils/errors.js";
@@ -335,17 +335,15 @@ export function registerProjectTools(server: XcodeServer) {
           try {
             // Use AppleScript to tell Xcode to open the project
             const { promisify } = await import('util');
-            const { exec } = await import('child_process');
-            const execAsyncFn = promisify(exec);
+            const { execFile } = await import('child_process');
+            const execFileAsync = promisify(execFile);
 
-            await execAsyncFn(`
-              osascript -e '
-                tell application "Xcode"
-                  open "${cleanedPath}"
-                  activate
-                end tell
-              '
-            `);
+            await execFileAsync('osascript', [
+              '-e',
+              `tell application "Xcode" to open POSIX file "${cleanedPath}"`,
+              '-e',
+              'activate'
+            ]);
             xcodeOpenStatus = " and opened in Xcode";
           } catch (openError) {
             console.error("Failed to open project in Xcode:", openError);
