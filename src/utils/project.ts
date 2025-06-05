@@ -1,11 +1,12 @@
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { promisify } from 'util';
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import { isInXcodeProject } from './file.js';
 import { XcodeProject, ProjectInfo } from '../types/index.js';
 
 const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
  * Find all Xcode projects in the given search path
@@ -13,9 +14,9 @@ const execAsync = promisify(exec);
 export async function findXcodeProjects(searchPath = "."): Promise<XcodeProject[]> {
   try {
     // Find .xcodeproj, .xcworkspace, and Package.swift files
-    const { stdout: projStdout } = await execAsync(`find "${searchPath}" -name "*.xcodeproj"`);
-    const { stdout: workspaceStdout } = await execAsync(`find "${searchPath}" -name "*.xcworkspace"`);
-    const { stdout: spmStdout } = await execAsync(`find "${searchPath}" -name "Package.swift"`);
+    const { stdout: projStdout } = await execFileAsync('find', [searchPath, '-name', '*.xcodeproj']);
+    const { stdout: workspaceStdout } = await execFileAsync('find', [searchPath, '-name', '*.xcworkspace']);
+    const { stdout: spmStdout } = await execFileAsync('find', [searchPath, '-name', 'Package.swift']);
 
     const projects: XcodeProject[] = [];
 
@@ -87,7 +88,7 @@ export async function findXcodeProjects(searchPath = "."): Promise<XcodeProject[
  */
 export async function isProjectInWorkspace(projectPath: string): Promise<boolean> {
   const projectDir = path.dirname(projectPath);
-  const workspaceCheck = await execAsync(`find "${projectDir}" -maxdepth 2 -name "*.xcworkspace"`);
+  const workspaceCheck = await execFileAsync('find', [projectDir, '-maxdepth', '2', '-name', '*.xcworkspace']);
   return workspaceCheck.stdout.trim().length > 0;
 }
 
