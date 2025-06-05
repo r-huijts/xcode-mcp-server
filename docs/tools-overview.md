@@ -122,4 +122,5 @@ Simulator tools allow you to interact with iOS simulators. They use the `simctl`
 | Tool | Description |
 |------|-------------|
 | `run_xcrun` | Executes a specified Xcode tool via 'xcrun' |
-| `
+
+See docs/exec-safety-audit.md for a review of shell command usage.
