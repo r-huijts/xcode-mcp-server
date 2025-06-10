@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/r-huijts-xcode-mcp-server-badge.png)](https://mseep.ai/app/r-huijts-xcode-mcp-server)
+
 # Xcode MCP Server
 
 An MCP (Model Context Protocol) server providing comprehensive Xcode integration for AI assistants. This server enables AI agents to interact with Xcode projects, manage iOS simulators, and perform various Xcode-related tasks with enhanced error handling and support for multiple project types.
