@@ -74,7 +74,19 @@ export function registerBuildTools(server: XcodeServer) {
         throw new XcodeServerError(`Invalid scheme "${scheme}". Available schemes: ${info.schemes.join(", ")}`);
       }
 
-      const result = await buildProject(server, configuration, scheme, { destination, sdk, jobs, derivedDataPath });
+      let sanitizedDerivedDataPath: string | undefined;
+      if (derivedDataPath) {
+        const resolvedPath = server.pathManager.normalizePath(derivedDataPath);
+        server.pathManager.validatePathForWriting(resolvedPath);
+        sanitizedDerivedDataPath = resolvedPath;
+      }
+
+      const result = await buildProject(server, configuration, scheme, {
+        destination,
+        sdk,
+        jobs,
+        derivedDataPath: sanitizedDerivedDataPath
+      });
       return {
         content: [{
           type: "text" as const,
@@ -98,13 +110,20 @@ export function registerBuildTools(server: XcodeServer) {
       enableCodeCoverage: z.boolean().optional().describe("Whether to enable code coverage during testing (default: false).")
     },
     async ({ testPlan, destination, scheme, onlyTesting, skipTesting, resultBundlePath, enableCodeCoverage }) => {
+      let sanitizedResultBundlePath: string | undefined;
+      if (resultBundlePath) {
+        const resolvedPath = server.pathManager.normalizePath(resultBundlePath);
+        server.pathManager.validatePathForWriting(resolvedPath);
+        sanitizedResultBundlePath = resolvedPath;
+      }
+
       const result = await runTests(server, {
         testPlan,
         destination,
         scheme,
         onlyTesting,
         skipTesting,
-        resultBundlePath,
+        resultBundlePath: sanitizedResultBundlePath,
         enableCodeCoverage
       });
       return {
@@ -333,8 +352,15 @@ export function registerBuildTools(server: XcodeServer) {
         // Add configuration if provided
         const configFlag = configuration ? `-configuration "${configuration}"` : "";
 
+        let sanitizedDerivedDataPath: string | undefined;
+        if (derivedDataPath) {
+          const resolvedPath = server.pathManager.normalizePath(derivedDataPath);
+          server.pathManager.validatePathForWriting(resolvedPath);
+          sanitizedDerivedDataPath = resolvedPath;
+        }
+
         // Add derived data path if provided
-        const derivedDataFlag = derivedDataPath ? `-derivedDataPath "${derivedDataPath}"` : "";
+        const derivedDataFlag = sanitizedDerivedDataPath ? `-derivedDataPath "${sanitizedDerivedDataPath}"` : "";
 
         // Build the clean command
         const cmd = `cd "${workingDir}" && xcodebuild ${projectFlag} -scheme "${schemeToUse}" ${configFlag} ${derivedDataFlag} clean`;
@@ -711,6 +737,13 @@ async function buildProject(server: XcodeServer, configuration: string, scheme: 
   const projectPath = server.activeProject.path;
   let projectInfo;
 
+  let sanitizedDerivedDataPath: string | undefined;
+  if (options.derivedDataPath) {
+    const resolvedPath = server.pathManager.normalizePath(options.derivedDataPath);
+    server.pathManager.validatePathForWriting(resolvedPath);
+    sanitizedDerivedDataPath = resolvedPath;
+  }
+
   try {
     // Different command for workspace vs project vs SPM
     if (server.activeProject.isSPMProject) {
@@ -789,7 +822,7 @@ async function buildProject(server: XcodeServer, configuration: string, scheme: 
 
     // Handle additional options
     const jobsFlag = options.jobs ? `-jobs ${options.jobs}` : '';
-    const derivedDataFlag = options.derivedDataPath ? `-derivedDataPath "${options.derivedDataPath}"` : '';
+    const derivedDataFlag = sanitizedDerivedDataPath ? `-derivedDataPath "${sanitizedDerivedDataPath}"` : '';
 
     // Use the active directory from ProjectDirectoryState for the working directory
     const workingDir = server.directoryState.getActiveDirectory();
@@ -869,6 +902,13 @@ async function runTests(server: XcodeServer, options: {
     // Use the active directory from ProjectDirectoryState for the working directory
     const workingDir = server.directoryState.getActiveDirectory();
 
+    let sanitizedResultBundlePath: string | undefined;
+    if (options.resultBundlePath) {
+      const resolvedPath = server.pathManager.normalizePath(options.resultBundlePath);
+      server.pathManager.validatePathForWriting(resolvedPath);
+      sanitizedResultBundlePath = resolvedPath;
+    }
+
     // Build the command with all the provided options
     let projectFlag;
     const projectPath = server.activeProject.path;
@@ -930,8 +970,8 @@ async function runTests(server: XcodeServer, options: {
       : '';
 
     // Handle result bundle path
-    const resultBundleFlag = options.resultBundlePath
-      ? `-resultBundlePath "${options.resultBundlePath}"`
+    const resultBundleFlag = sanitizedResultBundlePath
+      ? `-resultBundlePath "${sanitizedResultBundlePath}"`
       : '';
 
     // Handle code coverage
