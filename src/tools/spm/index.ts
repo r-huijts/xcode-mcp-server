@@ -1,12 +1,9 @@
 import { z } from "zod";
-import { promisify } from "util";
-import { exec } from "child_process";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { XcodeServer } from "../../server.js";
 import { ProjectNotFoundError, XcodeServerError, CommandExecutionError, PathAccessError, FileOperationError } from "../../utils/errors.js";
-
-const execAsync = promisify(exec);
+import { runExecFile } from "../../utils/execFile.js";
 
 /**
  * Helper function to escape special characters in a string for use in a regular expression
@@ -223,10 +220,8 @@ export function registerSPMTools(server: XcodeServer) {
                 testingArgs = '--enable-xctest --disable-swift-testing';
               }
 
-              // Use absolute paths and proper directory
-              const cmd = `cd "${packageDirectory}" && swift package init ${typeArg} ${nameArg} ${testingArgs}`.trim();
-
-              const { stdout, stderr } = await execAsync(cmd);
+              const initArgs = ["package", "init", typeArg, nameArg, ...testingArgs.trim().split(/\s+/).filter(Boolean)];
+              const { stdout, stderr } = await runExecFile("swift", initArgs, { cwd: packageDirectory });
 
               // If we have an active project, update its info to reflect it's now an SPM project
               if (server.activeProject) {
@@ -301,34 +296,28 @@ export function registerSPMTools(server: XcodeServer) {
         }
 
         try {
-          let dependencyArg = `"${url}"`;
-
-          // Handle version requirements
+          const addArgs = ["package", "add-dependency", url];
           if (version) {
-            if (version.startsWith('exact:')) {
-              dependencyArg += ` --exact ${version.split(':')[1].trim()}`;
-            } else if (version.startsWith('from:')) {
-              dependencyArg += ` --from ${version.split(':')[1].trim()}`;
-            } else if (version.startsWith('branch:')) {
-              dependencyArg += ` --branch ${version.split(':')[1].trim()}`;
-            } else if (version.startsWith('revision:')) {
-              dependencyArg += ` --revision ${version.split(':')[1].trim()}`;
+            if (version.startsWith("exact:")) {
+              addArgs.push("--exact", version.split(":")[1].trim());
+            } else if (version.startsWith("from:")) {
+              addArgs.push("--from", version.split(":")[1].trim());
+            } else if (version.startsWith("branch:")) {
+              addArgs.push("--branch", version.split(":")[1].trim());
+            } else if (version.startsWith("revision:")) {
+              addArgs.push("--revision", version.split(":")[1].trim());
             } else {
-              // Assume it's a "from:" version if not specified
-              dependencyArg += ` --from ${version}`;
+              addArgs.push("--from", version);
             }
           }
+          if (productName) addArgs.push("--product", productName);
 
-          const productArg = productName ? ` --product ${productName}` : '';
-          const cmd = `cd "${activeDirectory}" && swift package add-dependency ${dependencyArg}${productArg}`;
+          const { stdout, stderr } = await runExecFile("swift", addArgs, { cwd: activeDirectory });
 
-          const { stdout, stderr } = await execAsync(cmd);
-
-          // After adding dependency, run package update unless skipped
-          let updateOutput = '';
+          let updateOutput = "";
           if (!skipUpdate) {
             try {
-              const { stdout: updateStdout, stderr: updateStderr } = await execAsync('swift package update', { cwd: activeDirectory });
+              const { stdout: updateStdout, stderr: updateStderr } = await runExecFile("swift", ["package", "update"], { cwd: activeDirectory });
               updateOutput = `\n\nDependencies updated:\n${updateStdout}${updateStderr ? '\nUpdate errors:\n' + updateStderr : ''}`;
             } catch (updateError) {
               updateOutput = `\n\nFailed to update dependencies: ${updateError instanceof Error ? updateError.message : String(updateError)}`;
@@ -455,7 +444,7 @@ export function registerSPMTools(server: XcodeServer) {
           // Run package update to clean up
           let updateOutput = '';
           try {
-            const { stdout: updateStdout, stderr: updateStderr } = await execAsync('swift package update', { cwd: activeDirectory });
+            const { stdout: updateStdout, stderr: updateStderr } = await runExecFile("swift", ["package", "update"], { cwd: activeDirectory });
             updateOutput = `\n\nDependencies updated:\n${updateStdout}${updateStderr ? '\nUpdate errors:\n' + updateStderr : ''}`;
           } catch (updateError) {
             updateOutput = `\n\nFailed to update dependencies after removal: ${updateError instanceof Error ? updateError.message : String(updateError)}`;
@@ -544,7 +533,7 @@ export function registerSPMTools(server: XcodeServer) {
         let updateOutput = '';
 
         try {
-          const { stdout, stderr } = await execAsync('swift package update', { cwd: packageDir });
+          const { stdout, stderr } = await runExecFile("swift", ["package", "update"], { cwd: packageDir });
           updateOutput = `\n\nDependencies updated:\n${stdout}${stderr ? '\nUpdate errors:\n' + stderr : ''}`;
         } catch (error) {
           let stderr = '';
@@ -608,21 +597,10 @@ export function registerSPMTools(server: XcodeServer) {
           }
         }
 
-        // Build the command
-        let cmd = `cd "${packageDir}" && swift build --configuration ${configuration}`;
-
-        // Add target if specified
-        if (target) {
-          cmd += ` --target ${target}`;
-        }
-
-        // Add verbose flag if requested
-        if (verbose) {
-          cmd += ` --verbose`;
-        }
-
-        // Execute the command
-        const { stdout, stderr } = await execAsync(cmd);
+        const buildArgs = ["build", "--configuration", configuration];
+        if (target) buildArgs.push("--target", target);
+        if (verbose) buildArgs.push("--verbose");
+        const { stdout, stderr } = await runExecFile("swift", buildArgs, { cwd: packageDir });
 
         return {
           content: [{
@@ -683,26 +661,11 @@ export function registerSPMTools(server: XcodeServer) {
           }
         }
 
-        // Build the command
-        let cmd = `cd "${packageDir}" && swift test`;
-
-        // Add filter if specified
-        if (filter) {
-          cmd += ` --filter "${filter}"`;
-        }
-
-        // Add parallel flag if requested
-        if (parallel) {
-          cmd += ` --parallel`;
-        }
-
-        // Add verbose flag if requested
-        if (verbose) {
-          cmd += ` --verbose`;
-        }
-
-        // Execute the command
-        const { stdout, stderr } = await execAsync(cmd);
+        const testArgs = ["test"];
+        if (filter) testArgs.push("--filter", filter);
+        if (parallel) testArgs.push("--parallel");
+        if (verbose) testArgs.push("--verbose");
+        const { stdout, stderr } = await runExecFile("swift", testArgs, { cwd: packageDir });
 
         return {
           content: [{
@@ -790,7 +753,7 @@ export function registerSPMTools(server: XcodeServer) {
         // Get package targets using swift package dump-package
         let packageDump: any = {};
         try {
-          const { stdout } = await execAsync(`cd "${packageDir}" && swift package dump-package`);
+          const { stdout } = await runExecFile("swift", ["package", "dump-package"], { cwd: packageDir });
           packageDump = JSON.parse(stdout);
         } catch (error) {
           console.error("Error dumping package:", error);
@@ -889,31 +852,10 @@ export function registerSPMTools(server: XcodeServer) {
         }
 
         try {
-          let cmd: string;
-
-          // If updating a specific package, use resolve command
-          if (specificPackage) {
-            cmd = `cd "${activeDirectory}" && swift package resolve`;
-
-            if (version) {
-              cmd += ` --version "${version}"`;
-            }
-
-            if (branch) {
-              cmd += ` --branch "${branch}"`;
-            }
-
-            if (revision) {
-              cmd += ` --revision "${revision}"`;
-            }
-
-            cmd += ` "${specificPackage}"`;
-          } else {
-            // Otherwise, use regular update command
-            cmd = `cd "${activeDirectory}" && swift package update`;
-          }
-
-          const { stdout, stderr } = await execAsync(cmd);
+          const pkgArgs = specificPackage
+            ? ["package", "resolve", ...(version ? ["--version", version] : []), ...(branch ? ["--branch", branch] : []), ...(revision ? ["--revision", revision] : []), specificPackage]
+            : ["package", "update"];
+          const { stdout, stderr } = await runExecFile("swift", pkgArgs, { cwd: activeDirectory });
 
           // Try to get information about current dependencies
           let dependencyInfo = '';
@@ -999,12 +941,11 @@ export function registerSPMTools(server: XcodeServer) {
           throw new XcodeServerError("No Package.swift found in the active directory. This project doesn't use Swift Package Manager.");
         }
 
-        const configArg = configuration ? `--configuration ${configuration}` : '';
-        const extraArgsStr = extraArgs || '';
-
+        const pkgArgs = ["package", command];
+        if (configuration) pkgArgs.push("--configuration", configuration);
+        if (extraArgs?.trim()) pkgArgs.push(extraArgs.trim());
         try {
-          const cmd = `cd "${activeDirectory}" && swift package ${command} ${configArg} ${extraArgsStr}`.trim();
-          const { stdout, stderr } = await execAsync(cmd);
+          const { stdout, stderr } = await runExecFile("swift", pkgArgs, { cwd: activeDirectory });
           return {
             content: [{
               type: "text",
@@ -1062,35 +1003,16 @@ export function registerSPMTools(server: XcodeServer) {
           throw new XcodeServerError("No Package.swift found in the active directory. This project doesn't use Swift Package Manager.");
         }
 
-        // Build the command with all options
-        let args = `--configuration ${configuration}`;
-
-        if (target) {
-          args += ` --target "${target}"`;
-        }
-
-        if (product) {
-          args += ` --product "${product}"`;
-        }
-
-        if (showBinPath) {
-          args += ` --show-bin-path`;
-        }
-
-        if (buildTests) {
-          args += ` --build-tests`;
-        }
-
-        if (jobs) {
-          args += ` --jobs ${jobs}`;
-        }
-
-        if (verbose) {
-          args += ` --verbose`;
-        }
+        const buildArgs = ["build", "--configuration", configuration];
+        if (target) buildArgs.push("--target", target);
+        if (product) buildArgs.push("--product", product);
+        if (showBinPath) buildArgs.push("--show-bin-path");
+        if (buildTests) buildArgs.push("--build-tests");
+        if (jobs) buildArgs.push("--jobs", String(jobs));
+        if (verbose) buildArgs.push("--verbose");
 
         try {
-          const { stdout, stderr } = await execAsync(`swift build ${args}`, { cwd: activeDirectory });
+          const { stdout, stderr } = await runExecFile("swift", buildArgs, { cwd: activeDirectory });
 
           // If binary path was requested, highlight it in the output
           let formattedOutput = stdout;
@@ -1156,42 +1078,22 @@ export function registerSPMTools(server: XcodeServer) {
           throw new XcodeServerError("No Package.swift found in the active directory. This project doesn't use Swift Package Manager.");
         }
 
-        // Build the command with all options
-        let args = `--configuration ${configuration}`;
-
-        // If list tests is requested, we use a different subcommand
-        if (listTests) {
-          args = `list ${args}`;
-        }
-
-        if (filter) {
-          args += ` --filter "${filter}"`;
-        }
-
-        if (skip) {
-          args += ` --skip "${skip}"`;
-        }
-
+        const testArgs = listTests ? ["test", "list", "--configuration", configuration] : ["test", "--configuration", configuration];
+        if (filter) testArgs.push("--filter", filter);
+        if (skip) testArgs.push("--skip", skip);
         if (parallel) {
-          args += ` --parallel`;
-
-          if (numWorkers) {
-            args += ` --num-workers ${numWorkers}`;
-          }
+          testArgs.push("--parallel");
+          if (numWorkers) testArgs.push("--num-workers", String(numWorkers));
         }
-
-        if (codeCoverage) {
-          args += ` --enable-code-coverage`;
-        }
-
+        if (codeCoverage) testArgs.push("--enable-code-coverage");
         if (outputPath) {
           const resolvedOutputPath = server.pathManager.normalizePath(outputPath);
           server.pathManager.validatePathForWriting(resolvedOutputPath);
-          args += ` --xunit-output "${resolvedOutputPath}"`;
+          testArgs.push("--xunit-output", resolvedOutputPath);
         }
 
         try {
-          const { stdout, stderr } = await execAsync(`swift test ${args}`, { cwd: activeDirectory });
+          const { stdout, stderr } = await runExecFile("swift", testArgs, { cwd: activeDirectory });
 
           return {
             content: [{
@@ -1294,24 +1196,17 @@ export function registerSPMTools(server: XcodeServer) {
           throw new XcodeServerError("No Package.swift found in the active directory. This project doesn't use Swift Package Manager.");
         }
 
-        // Build the command
-        let args = `show-dependencies --format ${format}`;
-
-        if (verbose) {
-          args += ` --verbose`;
-        }
-
+        const showArgs = ["package", "show-dependencies", "--format", format];
+        if (verbose) showArgs.push("--verbose");
         if (outputPath) {
           const resolvedOutputPath = server.pathManager.normalizePath(outputPath);
           server.pathManager.validatePathForWriting(resolvedOutputPath);
-          args += ` --output-path "${resolvedOutputPath}"`;
-
-          // Ensure the output directory exists
+          showArgs.push("--output-path", resolvedOutputPath);
           await fs.mkdir(path.dirname(resolvedOutputPath), { recursive: true });
         }
 
         try {
-          const { stdout, stderr } = await execAsync(`swift package ${args}`, { cwd: activeDirectory });
+          const { stdout, stderr } = await runExecFile("swift", showArgs, { cwd: activeDirectory });
 
           // Try to get information about the Package.swift dependencies directly
           let packageDepsInfo = '';
@@ -1390,7 +1285,7 @@ export function registerSPMTools(server: XcodeServer) {
         }
 
         try {
-          const { stdout, stderr } = await execAsync(`swift package ${command}`, { cwd: activeDirectory });
+          const { stdout, stderr } = await runExecFile("swift", ["package", command], { cwd: activeDirectory });
 
           return {
             content: [{
@@ -1442,7 +1337,7 @@ export function registerSPMTools(server: XcodeServer) {
         }
 
         try {
-          const { stdout, stderr } = await execAsync(`swift package dump-package`, { cwd: activeDirectory });
+          const { stdout, stderr } = await runExecFile("swift", ["package", "dump-package"], { cwd: activeDirectory });
 
           // Try to parse and pretty print the JSON
           let formattedOutput = stdout;
@@ -1517,7 +1412,7 @@ export function registerSPMTools(server: XcodeServer) {
         try {
           // First, check if swift-docc is available
           try {
-            await execAsync('which swift-docc');
+            await runExecFile("which", ["swift-docc"]);
           } catch {
             throw new Error(
               "swift-docc command not found. DocC is available in Swift 5.5 and later. " +
@@ -1525,23 +1420,10 @@ export function registerSPMTools(server: XcodeServer) {
             );
           }
 
-          // Build the command with all options
-          let cmd = `cd "${activeDirectory}" && swift package --disable-sandbox generate-documentation`;
-
-          // Add output path
-          cmd += ` --output-path "${resolvedOutputPath}"`;
-
-          // Add hosting base path if provided
-          if (hostingBasePath) {
-            cmd += ` --hosting-base-path "${hostingBasePath}"`;
-          }
-
-          // Add transform for static hosting if requested
-          if (transformForStaticHosting) {
-            cmd += ` --transform-for-static-hosting`;
-          }
-
-          const { stdout, stderr } = await execAsync(cmd);
+          const docArgs = ["package", "--disable-sandbox", "generate-documentation", "--output-path", resolvedOutputPath];
+          if (hostingBasePath) docArgs.push("--hosting-base-path", hostingBasePath);
+          if (transformForStaticHosting) docArgs.push("--transform-for-static-hosting");
+          const { stdout, stderr } = await runExecFile("swift", docArgs, { cwd: activeDirectory });
 
           // Determine the index.html path for opening in browser
           const indexPath = path.join(resolvedOutputPath, 'index.html');
@@ -1553,9 +1435,7 @@ export function registerSPMTools(server: XcodeServer) {
               // Check if the index.html file exists
               await fs.access(indexPath);
 
-              // Open in browser
-              const { exec } = await import('child_process');
-              exec(`open "${indexPath}"`);
+              await runExecFile("open", [indexPath]);
 
               browserMessage = `\n\nDocumentation opened in your default browser.`;
             } catch {

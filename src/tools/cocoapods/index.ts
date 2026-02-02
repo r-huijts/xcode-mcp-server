@@ -1,12 +1,9 @@
 import { z } from "zod";
-import { promisify } from "util";
-import { exec } from "child_process";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { XcodeServer } from "../../server.js";
 import { ProjectNotFoundError, XcodeServerError, CommandExecutionError, PathAccessError } from "../../utils/errors.js";
-
-const execAsync = promisify(exec);
+import { runExecFile } from "../../utils/execFile.js";
 
 interface GemIssue {
   type: string;
@@ -51,11 +48,8 @@ async function getPodfileLockVersion(podfileLockPath: string): Promise<string | 
  */
 async function checkCocoaPodsInstallation(): Promise<CocoaPodsCheck> {
   try {
-    // Check if pod command exists
-    await execAsync('which pod');
-
-    // Check CocoaPods version
-    const { stdout } = await execAsync('pod --version');
+    await runExecFile("which", ["pod"]);
+    const { stdout } = await runExecFile("pod", ["--version"]);
     return { installed: true, version: stdout.trim() };
   } catch (error) {
     return { installed: false, error };
@@ -111,8 +105,8 @@ async function checkVersionCompatibility(projectRoot: string): Promise<void> {
  */
 async function checkRubyEnvironment(): Promise<RubyCheck> {
   try {
-    const { stdout: rubyVersion } = await execAsync('ruby --version');
-    const { stdout: gemList } = await execAsync('gem list');
+    const { stdout: rubyVersion } = await runExecFile("ruby", ["--version"]);
+    const { stdout: gemList } = await runExecFile("gem", ["list"]);
 
     const issues: GemIssue[] = [];
 
@@ -223,7 +217,7 @@ async function checkOutdatedPods(projectDir: string): Promise<PodInfo[]> {
     const installedPods = await extractInstalledPods(podfileLockPath);
 
     // Run pod outdated to get the list of outdated pods
-    const { stdout } = await execAsync('pod outdated --no-repo-update', { cwd: projectDir });
+    const { stdout } = await runExecFile("pod", ["outdated", "--no-repo-update"], { cwd: projectDir });
 
     // Parse the output to identify outdated pods and their latest versions
     const outdatedPods = new Map<string, string>();
@@ -351,26 +345,12 @@ export function registerCocoaPodsTools(server: XcodeServer) {
             LC_ALL: 'en_US.UTF-8'
           };
 
-          // Build the command with appropriate flags
-          let cmd = 'pod install';
-          if (repoUpdate) {
-            cmd += ' --repo-update';
-          } else {
-            cmd += ' --no-repo-update';
-          }
-
-          if (cleanInstall) {
-            cmd += ' --clean-install';
-          }
-
-          if (verbose) {
-            cmd += ' --verbose';
-          }
-
-          const { stdout, stderr } = await execAsync(cmd, {
-            cwd: activeDirectory,
-            env
-          });
+          const installArgs = ["install"];
+          if (repoUpdate) installArgs.push("--repo-update");
+          else installArgs.push("--no-repo-update");
+          if (cleanInstall) installArgs.push("--clean-install");
+          if (verbose) installArgs.push("--verbose");
+          const { stdout, stderr } = await runExecFile("pod", installArgs, { cwd: activeDirectory, env });
 
           return {
             content: [{
@@ -520,38 +500,13 @@ export function registerCocoaPodsTools(server: XcodeServer) {
             LC_ALL: 'en_US.UTF-8'
           };
 
-          // Build the command
-          let cmd = 'pod update';
-
-          // Add specific pods to update
-          if (pods && pods.length > 0) {
-            cmd += ' ' + pods.map(pod => pod.trim()).join(' ');
-          }
-
-          // Add repo update flag
-          if (!repoUpdate) {
-            cmd += ' --no-repo-update';
-          }
-
-          // Add excluded pods
-          if (excludePods && excludePods.length > 0) {
-            cmd += ` --exclude-pods=${excludePods.join(',')}`;
-          }
-
-          // Add clean install flag
-          if (cleanInstall) {
-            cmd += ' --clean-install';
-          }
-
-          // Add sources
-          if (sources && sources.length > 0) {
-            cmd += ` --sources=${sources.join(',')}`;
-          }
-
-          const { stdout, stderr } = await execAsync(cmd, {
-            cwd: activeDirectory,
-            env
-          });
+          const updateArgs = ["update"];
+          if (pods?.length) updateArgs.push(...pods.map((p) => p.trim()));
+          if (!repoUpdate) updateArgs.push("--no-repo-update");
+          if (excludePods?.length) updateArgs.push(`--exclude-pods=${excludePods.join(",")}`);
+          if (cleanInstall) updateArgs.push("--clean-install");
+          if (sources?.length) updateArgs.push(`--sources=${sources.join(",")}`);
+          const { stdout, stderr } = await runExecFile("pod", updateArgs, { cwd: activeDirectory, env });
 
           return {
             content: [{
@@ -648,20 +603,10 @@ export function registerCocoaPodsTools(server: XcodeServer) {
         }
 
         try {
-          // Build command with options
-          let cmd = 'pod outdated';
-
-          if (ignorePrerelease) {
-            cmd += ' --ignore-prerelease';
-          }
-
-          if (!repoUpdate) {
-            cmd += ' --no-repo-update';
-          }
-
-          const { stdout, stderr } = await execAsync(cmd, {
-            cwd: activeDirectory
-          });
+          const outdatedArgs = ["outdated"];
+          if (ignorePrerelease) outdatedArgs.push("--ignore-prerelease");
+          if (!repoUpdate) outdatedArgs.push("--no-repo-update");
+          const { stdout, stderr } = await runExecFile("pod", outdatedArgs, { cwd: activeDirectory });
 
           // Parse the outdated pods information
           const outdatedPods: PodInfo[] = [];
@@ -727,18 +672,10 @@ export function registerCocoaPodsTools(server: XcodeServer) {
     },
     async ({ verbose = false, silent = false }) => {
       try {
-        // Build command with options
-        let cmd = 'pod repo update';
-
-        if (verbose) {
-          cmd += ' --verbose';
-        }
-
-        if (silent) {
-          cmd += ' --silent';
-        }
-
-        const { stdout, stderr } = await execAsync(cmd);
+        const repoArgs = ["repo", "update"];
+        if (verbose) repoArgs.push("--verbose");
+        if (silent) repoArgs.push("--silent");
+        const { stdout, stderr } = await runExecFile("pod", repoArgs);
 
         return {
           content: [{
@@ -785,9 +722,7 @@ export function registerCocoaPodsTools(server: XcodeServer) {
         }
 
         try {
-          const { stdout, stderr } = await execAsync('pod deintegrate', {
-            cwd: activeDirectory
-          });
+          const { stdout, stderr } = await runExecFile("pod", ["deintegrate"], { cwd: activeDirectory });
 
           return {
             content: [{
@@ -889,7 +824,7 @@ export function registerCocoaPodsTools(server: XcodeServer) {
         let repoInfo = null;
         if (cocoaPodsCheck.installed) {
           try {
-            const { stdout } = await execAsync('pod repo list');
+            const { stdout } = await runExecFile("pod", ["repo", "list"]);
             repoInfo = stdout.trim();
           } catch {
             // Ignore repo listing errors
@@ -953,9 +888,7 @@ export function registerCocoaPodsTools(server: XcodeServer) {
         }
 
         try {
-          const { stdout, stderr } = await execAsync('pod init', {
-            cwd: activeDirectory
-          });
+          const { stdout, stderr } = await runExecFile("pod", ["init"], { cwd: activeDirectory });
 
           // Read the generated Podfile
           let podfileContent = "";

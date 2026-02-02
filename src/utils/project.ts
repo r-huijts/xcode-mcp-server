@@ -1,22 +1,17 @@
-import * as path from 'path';
-import * as fs from 'fs/promises';
-import { promisify } from 'util';
-import { exec, execFile } from 'child_process';
-import { isInXcodeProject } from './file.js';
-import { XcodeProject, ProjectInfo } from '../types/index.js';
-
-const execAsync = promisify(exec);
-const execFileAsync = promisify(execFile);
+import * as path from "path";
+import * as fs from "fs/promises";
+import { isInXcodeProject } from "./file.js";
+import { XcodeProject, ProjectInfo } from "../types/index.js";
+import { runExecFile } from "./execFile.js";
 
 /**
  * Find all Xcode projects in the given search path
  */
 export async function findXcodeProjects(searchPath = "."): Promise<XcodeProject[]> {
   try {
-    // Find .xcodeproj, .xcworkspace, and Package.swift files
-    const { stdout: projStdout } = await execFileAsync('find', [searchPath, '-name', '*.xcodeproj']);
-    const { stdout: workspaceStdout } = await execFileAsync('find', [searchPath, '-name', '*.xcworkspace']);
-    const { stdout: spmStdout } = await execFileAsync('find', [searchPath, '-name', 'Package.swift']);
+    const { stdout: projStdout } = await runExecFile("find", [searchPath, "-name", "*.xcodeproj"]);
+    const { stdout: workspaceStdout } = await runExecFile("find", [searchPath, "-name", "*.xcworkspace"]);
+    const { stdout: spmStdout } = await runExecFile("find", [searchPath, "-name", "Package.swift"]);
 
     const projects: XcodeProject[] = [];
 
@@ -88,8 +83,8 @@ export async function findXcodeProjects(searchPath = "."): Promise<XcodeProject[
  */
 export async function isProjectInWorkspace(projectPath: string): Promise<boolean> {
   const projectDir = path.dirname(projectPath);
-  const workspaceCheck = await execFileAsync('find', [projectDir, '-maxdepth', '2', '-name', '*.xcworkspace']);
-  return workspaceCheck.stdout.trim().length > 0;
+  const { stdout } = await runExecFile("find", [projectDir, "-maxdepth", "2", "-name", "*.xcworkspace"]);
+  return stdout.trim().length > 0;
 }
 
 /**
@@ -146,39 +141,31 @@ export async function findMainProjectInWorkspace(workspacePath: string): Promise
  */
 export async function getProjectInfo(projectPath: string): Promise<ProjectInfo> {
   try {
-    // Determine the right command based on the project path type
-    let cmd: string;
+    let args: string[];
 
-    if (projectPath.endsWith('.xcworkspace')) {
-      // For workspaces, use -workspace flag
-      cmd = `xcodebuild -list -workspace "${projectPath}"`;
-    } else if (projectPath.endsWith('/project.xcworkspace')) {
-      // Handle the case where we incorrectly get a project.xcworkspace inside an .xcodeproj
-      // Strip off the /project.xcworkspace and use the .xcodeproj with -project flag
-      const xcodeProjectPath = projectPath.replace('/project.xcworkspace', '');
-      cmd = `xcodebuild -list -project "${xcodeProjectPath}"`;
-    } else if (projectPath.endsWith('.xcodeproj')) {
-      // Standard project
-      cmd = `xcodebuild -list -project "${projectPath}"`;
+    if (projectPath.endsWith(".xcworkspace")) {
+      args = ["-list", "-workspace", projectPath];
+    } else if (projectPath.endsWith("/project.xcworkspace")) {
+      const xcodeProjectPath = projectPath.replace("/project.xcworkspace", "");
+      args = ["-list", "-project", xcodeProjectPath];
+    } else if (projectPath.endsWith(".xcodeproj")) {
+      args = ["-list", "-project", projectPath];
     } else {
-      // Check if it's an SPM project
-      const packageSwiftPath = path.join(projectPath, 'Package.swift');
+      const packageSwiftPath = path.join(projectPath, "Package.swift");
       try {
         await fs.access(packageSwiftPath);
-        // For SPM projects, return basic info
         return {
           path: projectPath,
-          targets: ['all'],
-          configurations: ['debug', 'release'],
-          schemes: ['all']
+          targets: ["all"],
+          configurations: ["debug", "release"],
+          schemes: ["all"]
         };
       } catch {
-        // Not an SPM project, try as a standard project
-        cmd = `xcodebuild -list -project "${projectPath}"`;
+        args = ["-list", "-project", projectPath];
       }
     }
 
-    const { stdout } = await execAsync(cmd);
+    const { stdout } = await runExecFile("xcodebuild", args);
     const info: ProjectInfo = {
       path: projectPath,
       targets: [],
@@ -211,23 +198,16 @@ export async function getProjectInfo(projectPath: string): Promise<ProjectInfo> 
  */
 export async function getWorkspaceInfo(workspacePath: string): Promise<ProjectInfo> {
   try {
-    // Handle different path formats
-    let cmd: string;
-
-    if (workspacePath.endsWith('.xcworkspace')) {
-      // Standard workspace
-      cmd = `xcodebuild -workspace "${workspacePath}" -list`;
-    } else if (workspacePath.endsWith('/project.xcworkspace')) {
-      // Handle case where we get project.xcworkspace inside an .xcodeproj
-      const xcodeProjectPath = workspacePath.replace('/project.xcworkspace', '');
-      // In this case, use project instead of workspace
-      cmd = `xcodebuild -project "${xcodeProjectPath}" -list`;
+    let args: string[];
+    if (workspacePath.endsWith(".xcworkspace")) {
+      args = ["-workspace", workspacePath, "-list"];
+    } else if (workspacePath.endsWith("/project.xcworkspace")) {
+      const xcodeProjectPath = workspacePath.replace("/project.xcworkspace", "");
+      args = ["-project", xcodeProjectPath, "-list"];
     } else {
-      // Default to treating it as a workspace
-      cmd = `xcodebuild -workspace "${workspacePath}" -list`;
+      args = ["-workspace", workspacePath, "-list"];
     }
-
-    const { stdout } = await execAsync(cmd);
+    const { stdout } = await runExecFile("xcodebuild", args);
     const info: ProjectInfo = {
       path: workspacePath,
       targets: [],

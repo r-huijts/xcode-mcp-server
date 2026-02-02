@@ -5,10 +5,7 @@ import * as path from "path";
 import { XcodeServer } from "../../server.js";
 import { ProjectNotFoundError, PathAccessError, FileOperationError, CommandExecutionError } from "../../utils/errors.js";
 import { getMimeTypeForExtension, listDirectory, expandPath } from "../../utils/file.js";
-import { promisify } from "util";
-import { exec } from "child_process";
-
-const execAsync = promisify(exec);
+import { runExecFile } from "../../utils/execFile.js";
 
 /**
  * Helper function to format file size in human-readable format
@@ -65,22 +62,15 @@ async function getFileInfo(filePath: string): Promise<FileInfo> {
   else if (stats.isDirectory()) type = 'directory';
   else if (stats.isSymbolicLink()) type = 'symlink';
 
-  // Try to get owner info (this might fail in some environments)
-  let owner = undefined;
+  let owner: string | undefined;
+  let permissions: string | undefined;
   try {
-    const { stdout } = await execAsync(`ls -l "${filePath}" | awk '{print $3}'`);
-    owner = stdout.trim();
+    const { stdout } = await runExecFile("ls", ["-l", filePath]);
+    const parts = stdout.trim().split(/\s+/);
+    if (parts.length >= 3) permissions = parts[0];
+    if (parts.length >= 4) owner = parts[2];
   } catch {
-    // Ignore errors, owner will remain undefined
-  }
-
-  // Get permissions
-  let permissions = undefined;
-  try {
-    const { stdout } = await execAsync(`ls -la "${filePath}" | awk '{print $1}'`);
-    permissions = stdout.trim();
-  } catch {
-    // Ignore errors, permissions will remain undefined
+    // Ignore errors
   }
 
   return {
@@ -329,10 +319,9 @@ export function registerFileTools(server: XcodeServer) {
         }
 
         if (isDirectory) {
-          // Use cp with recursive flag for directories
-          const { stdout, stderr } = await execAsync(`cp -R "${resolvedSource}" "${targetPath}"`);
+          const { stderr } = await runExecFile("cp", ["-R", resolvedSource, targetPath]);
           if (stderr) {
-            throw new FileOperationError('copy directory', resolvedSource, new Error(stderr));
+            throw new FileOperationError("copy directory", resolvedSource, new Error(stderr));
           }
         } else {
           // Copy file
@@ -736,13 +725,13 @@ export function registerFileTools(server: XcodeServer) {
           }
 
           // For text files, try to show encoding and line count
-          if (mimeType && mimeType.startsWith('text/') && info.size && info.size < 10 * 1024 * 1024) {
+          if (mimeType && mimeType.startsWith("text/") && info.size && info.size < 10 * 1024 * 1024) {
             try {
-              const { stdout: wc } = await execAsync(`wc -l "${resolvedPath}" | awk '{print $1}'`);
-              additionalInfo += `Line Count: ${wc.trim()}\n`;
-
-              const { stdout: file } = await execAsync(`file -b "${resolvedPath}"`);
-              additionalInfo += `File Type: ${file.trim()}\n`;
+              const { stdout: wc } = await runExecFile("wc", ["-l", resolvedPath]);
+              const lineCount = wc.trim().split(/\s+/)[0] ?? "";
+              additionalInfo += `Line Count: ${lineCount}\n`;
+              const { stdout: fileOut } = await runExecFile("file", ["-b", resolvedPath]);
+              additionalInfo += `File Type: ${fileOut.trim()}\n`;
             } catch {
               // Ignore errors for these extra info commands
             }
@@ -811,38 +800,13 @@ export function registerFileTools(server: XcodeServer) {
           throw new FileOperationError('find', resolvedPath, new Error('Path is not a directory'));
         }
 
-        // Use find command with appropriate options
-        let findCmd = `find "${resolvedPath}" -type f`;
-
-        // Add maxDepth if specified
-        if (maxDepth !== undefined) {
-          findCmd += ` -maxdepth ${maxDepth}`;
-        }
-
-        // Exclude hidden files/dirs if not showing hidden
-        if (!showHidden) {
-          findCmd += ` -not -path "*/\\.*"`;
-        }
-
-        // Add pattern matching
-        if (pattern) {
-          // Convert glob pattern to find-compatible pattern
-          if (pattern.includes('*') || pattern.includes('?')) {
-            // For simple glob patterns, use -name
-            if (!pattern.includes('/**/')) {
-              findCmd += ` -name "${pattern}"`;
-            } else {
-              // For more complex patterns with ** (any depth), we need to post-process
-              // Remove the ** handling and filter results after
-            }
-          } else {
-            // For exact matches, use -name
-            findCmd += ` -name "${pattern}"`;
-          }
-        }
+        const findArgs = [resolvedPath, "-type", "f"];
+        if (maxDepth !== undefined) findArgs.push("-maxdepth", String(maxDepth));
+        if (!showHidden) findArgs.push("-not", "-path", "*/\\.*");
+        if (pattern && !pattern.includes("/**/")) findArgs.push("-name", pattern);
 
         try {
-          const { stdout, stderr } = await execAsync(findCmd);
+          const { stdout, stderr } = await runExecFile("find", findArgs);
 
           if (stderr) {
             console.error(`Warning from find command: ${stderr}`);
@@ -1050,13 +1014,15 @@ export function registerFileTools(server: XcodeServer) {
           searchRegex = new RegExp(escapedText, caseSensitive ? 'g' : 'gi');
         }
 
-        // Find matching files
-        const findCmd = `find "${resolvedPath}" -type f ${includeHidden ? '' : '-not -path "*/\\.*"'} -name "${pattern}"${maxResults ? ` | head -n ${maxResults}` : ''}`;
+        const findArgs = [resolvedPath, "-type", "f"];
+        if (!includeHidden) findArgs.push("-not", "-path", "*/\\.*");
+        findArgs.push("-name", pattern);
 
         let files: string[];
         try {
-          const { stdout } = await execAsync(findCmd);
-          files = stdout.trim().split('\n').filter(Boolean);
+          const { stdout } = await runExecFile("find", findArgs);
+          files = stdout.trim().split("\n").filter(Boolean);
+          if (maxResults) files = files.slice(0, maxResults);
         } catch (error) {
           throw new CommandExecutionError(
             'find',
@@ -1429,9 +1395,14 @@ async function updateProjectReferences(projectRoot: string, filePath: string) {
     // This is a more advanced approach that requires Xcode to be running
     try {
       // Check if Xcode is running
-      const { stdout: isRunning } = await execAsync('pgrep -x Xcode || echo "not running"');
-
-      if (isRunning.trim() === 'not running') {
+      let isRunning = false;
+      try {
+        await runExecFile("pgrep", ["-x", "Xcode"]);
+        isRunning = true;
+      } catch {
+        // pgrep exits 1 when no process found
+      }
+      if (!isRunning) {
         console.error('Xcode is not running. Cannot automatically add file to project.');
         return;
       }

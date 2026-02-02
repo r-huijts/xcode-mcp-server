@@ -2,13 +2,12 @@ import { z } from "zod";
 import * as fs from "fs/promises";
 import * as fsSync from "fs";
 import * as path from "path";
+import { execFile } from "child_process";
 import { promisify } from "util";
-import { exec, execFile } from "child_process";
 import { XcodeServer } from "../../server.js";
 import { getProjectInfo } from "../../utils/project.js";
 import { ProjectNotFoundError, PathAccessError, FileOperationError, CommandExecutionError } from "../../utils/errors.js";
-
-const execAsync = promisify(exec);
+import { runExecFile } from "../../utils/execFile.js";
 
 /**
  * Interface for workspace document
@@ -181,10 +180,12 @@ async function getProjectConfiguration(projectPath: string): Promise<ProjectConf
     // Get project schemes
     try {
       // Determine if this is a workspace or regular project
-      const isWorkspace = projectPath.endsWith('.xcworkspace');
-      const flag = isWorkspace ? '-workspace' : '-project';
-
-      const { stdout: schemesOutput } = await execAsync(`xcodebuild ${flag} "${projectPath}" -list`);
+      const isWorkspace = projectPath.endsWith(".xcworkspace");
+      const { stdout: schemesOutput } = await runExecFile("xcodebuild", [
+        isWorkspace ? "-workspace" : "-project",
+        projectPath,
+        "-list"
+      ]);
 
       // Parse schemes
       const schemesMatch = schemesOutput.match(/Schemes:\s+((?:.+\s*)+)/);
@@ -493,8 +494,12 @@ export function registerProjectTools(server: XcodeServer) {
         if (includeSPM) {
           try {
             // Find directories containing Package.swift
-            const findCmd = `find "${searchDir}" -name "Package.swift" -type f -not -path "*/\\.*/"`;
-            const { stdout: spmOutput } = await execAsync(findCmd);
+            const { stdout: spmOutput } = await runExecFile("find", [
+              searchDir,
+              "-name", "Package.swift",
+              "-type", "f",
+              "-not", "-path", "*/\\.*"
+            ]);
 
             if (spmOutput.trim()) {
               spmProjects = spmOutput.trim().split('\n')
@@ -958,8 +963,7 @@ export function registerProjectTools(server: XcodeServer) {
         await fs.writeFile(tempScriptPath, scriptContent, "utf-8");
 
         try {
-          // Execute the AppleScript
-          const { stdout, stderr } = await execAsync(`osascript "${tempScriptPath}"`);
+          const { stdout, stderr } = await runExecFile("osascript", [tempScriptPath]);
 
           // Clean up the temporary script file
           await fs.unlink(tempScriptPath).catch(() => {});
@@ -1287,24 +1291,13 @@ export function registerProjectTools(server: XcodeServer) {
             throw new Error(`Unsupported template: ${template}`);
         }
 
-        // Build the command to create the project
-        let cmd = `cd "${resolvedOutputDir}" && xcrun swift package init`;
-
         // For Swift Package Manager templates, use swift package init
         if (template === "cross-platform-framework" || template === "cross-platform-library") {
           const isLibrary = template === "cross-platform-library";
-          cmd = `cd "${resolvedOutputDir}" && xcrun swift package init --${isLibrary ? 'type library' : 'type framework'}`;
-
-          if (!includeTests) {
-            cmd += " --no-tests";
-          }
-
-          // Execute the command
-          const { stdout, stderr } = await execAsync(cmd);
-
-          // Generate Xcode project from the Swift package
-          const generateCmd = `cd "${resolvedOutputDir}" && xcrun swift package generate-xcodeproj`;
-          const { stdout: genStdout, stderr: genStderr } = await execAsync(generateCmd);
+          const initArgs = ["swift", "package", "init", "--type", isLibrary ? "library" : "framework"];
+          if (!includeTests) initArgs.push("--no-tests");
+          const { stdout, stderr } = await runExecFile("xcrun", initArgs, { cwd: resolvedOutputDir });
+          const { stdout: genStdout, stderr: genStderr } = await runExecFile("xcrun", ["swift", "package", "generate-xcodeproj"], { cwd: resolvedOutputDir });
 
           // Get the path to the generated .xcodeproj
           const projectPath = path.join(resolvedOutputDir, `${name}.xcodeproj`);
@@ -1334,29 +1327,16 @@ export function registerProjectTools(server: XcodeServer) {
           };
         }
 
-        // For Xcode templates, use Xcode's template system
-        // Create a temporary directory for the project
         const projectDir = path.join(resolvedOutputDir, name);
         await fs.mkdir(projectDir, { recursive: true });
 
-        // Build the Xcode project creation command
-        cmd = `cd "${resolvedOutputDir}" && xcrun swift package generate-xcodeproj --output "${name}.xcodeproj"`;
-
-        // Add organization name if provided
-        const orgNameArg = organizationName ? `--organization "${organizationName}"` : "";
-
-        // Add organization identifier if provided
-        const orgIdArg = organizationIdentifier ? `--identifier "${organizationIdentifier}"` : "";
-
-        // Add language
-        const langArg = `--language ${language === "swift" ? "Swift" : "Objective-C"}`;
-
-        // Add test options
-        const testArgs = includeTests ? "" : "--no-tests";
-        const uiTestArgs = includeUITests ? "--include-ui-tests" : "";
-
-        // Execute the command
-        const { stdout, stderr } = await execAsync(cmd);
+        const genArgs = ["swift", "package", "generate-xcodeproj", "--output", `${name}.xcodeproj`];
+        if (organizationName) genArgs.push("--organization", organizationName);
+        if (organizationIdentifier) genArgs.push("--identifier", organizationIdentifier);
+        genArgs.push("--language", language === "swift" ? "Swift" : "Objective-C");
+        if (!includeTests) genArgs.push("--no-tests");
+        if (includeUITests) genArgs.push("--include-ui-tests");
+        const { stdout, stderr } = await runExecFile("xcrun", genArgs, { cwd: resolvedOutputDir });
 
         // Get the path to the generated .xcodeproj
         const projectPath = path.join(resolvedOutputDir, `${name}.xcodeproj`);

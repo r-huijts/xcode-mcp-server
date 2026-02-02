@@ -1,12 +1,17 @@
 import { z } from "zod";
-import { promisify } from "util";
-import { exec } from "child_process";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { XcodeServer } from "../../server.js";
 import { CommandExecutionError, PathAccessError } from "../../utils/errors.js";
+import { runExecFile } from "../../utils/execFile.js";
 
-const execAsync = promisify(exec);
+const UDID_REGEX = /^[0-9A-Fa-f-]{36}$/;
+
+function validateUdid(udid: string): void {
+  if (!UDID_REGEX.test(udid)) {
+    throw new Error(`Invalid simulator UDID format: "${udid}". Use list_simulators to get a valid UDID.`);
+  }
+}
 
 interface SimulatorInfo {
   name: string;
@@ -81,7 +86,7 @@ function parseSimulatorDevices(simctlOutput: string): SimulatorInfo[] {
  */
 async function getBootedSimulators(): Promise<SimulatorInfo[]> {
   try {
-    const { stdout } = await execAsync("xcrun simctl list --json");
+    const { stdout } = await runExecFile("xcrun", ["simctl", "list", "--json"]);
     const allSimulators = parseSimulatorDevices(stdout);
     return allSimulators.filter(sim => sim.state === 'Booted');
   } catch (error) {
@@ -162,7 +167,7 @@ export function registerSimulatorTools(server: XcodeServer) {
     },
     async ({ format = "parsed", filterRuntime, filterState, filterName }) => {
       try {
-      const { stdout, stderr } = await execAsync("xcrun simctl list --json");
+      const { stdout, stderr } = await runExecFile("xcrun", ["simctl", "list", "--json"]);
 
         if (format === "json") {
       return {
@@ -258,7 +263,7 @@ export function registerSimulatorTools(server: XcodeServer) {
 
         // If name is provided, we need to find the matching simulator
         if (name && !udid) {
-          const { stdout } = await execAsync("xcrun simctl list --json");
+          const { stdout } = await runExecFile("xcrun", ["simctl", "list", "--json"]);
           const simulators = parseSimulatorDevices(stdout);
 
           // Filter by name (case insensitive)
@@ -304,8 +309,9 @@ export function registerSimulatorTools(server: XcodeServer) {
           udid = matches[0].udid;
         }
 
-        // Boot the simulator
-      const { stdout, stderr } = await execAsync(`xcrun simctl boot "${udid}"`);
+        if (!udid) throw new Error("Simulator UDID could not be determined");
+        validateUdid(udid);
+        const { stdout, stderr } = await runExecFile("xcrun", ["simctl", "boot", udid]);
 
         return {
           content: [{
@@ -376,16 +382,9 @@ export function registerSimulatorTools(server: XcodeServer) {
           throw new Error("Either udid parameter or all=true must be provided");
         }
 
-        let command;
-        if (all) {
-          // Shutdown all simulators
-          command = "xcrun simctl shutdown all";
-        } else {
-          // Shutdown specific simulator
-          command = `xcrun simctl shutdown "${udid}"`;
-        }
-
-        const { stdout, stderr } = await execAsync(command);
+        if (!all) validateUdid(udid!);
+        const args = all ? ["simctl", "shutdown", "all"] : ["simctl", "shutdown", udid!];
+        const { stdout, stderr } = await runExecFile("xcrun", args);
 
         return {
           content: [{
@@ -449,8 +448,8 @@ export function registerSimulatorTools(server: XcodeServer) {
           throw new Error(`The app bundle doesn't exist: ${appPath}`);
         }
 
-        // Install the app
-        const { stdout, stderr } = await execAsync(`xcrun simctl install "${udid}" "${resolvedAppPath}"`);
+        validateUdid(udid);
+        const { stdout, stderr } = await runExecFile("xcrun", ["simctl", "install", udid, resolvedAppPath]);
 
         return {
           content: [{
@@ -488,18 +487,11 @@ export function registerSimulatorTools(server: XcodeServer) {
     },
     async ({ udid, bundleId, waitForDebugger = false, args = [] }) => {
       try {
-        // Build the command
-        let command = `xcrun simctl launch ${waitForDebugger ? '-w' : ''}`;
-
-        // Add the UDID and bundle ID
-        command += ` "${udid}" "${bundleId}"`;
-
-        // Add any arguments
-        if (args.length > 0) {
-          command += ` ${args.map(arg => `"${arg}"`).join(' ')}`;
-        }
-
-        const { stdout, stderr } = await execAsync(command);
+        validateUdid(udid);
+        const launchArgs = ["simctl", "launch"];
+        if (waitForDebugger) launchArgs.push("-w");
+        launchArgs.push(udid, bundleId, ...args);
+        const { stdout, stderr } = await runExecFile("xcrun", launchArgs);
 
         return {
           content: [{
@@ -552,7 +544,8 @@ export function registerSimulatorTools(server: XcodeServer) {
     },
     async ({ udid, bundleId }) => {
       try {
-        const { stdout, stderr } = await execAsync(`xcrun simctl terminate "${udid}" "${bundleId}"`);
+        validateUdid(udid);
+        const { stdout, stderr } = await runExecFile("xcrun", ["simctl", "terminate", udid, bundleId]);
 
         return {
           content: [{
@@ -605,7 +598,8 @@ export function registerSimulatorTools(server: XcodeServer) {
           throw new Error(`Invalid URL format: ${url}`);
         }
 
-        const { stdout, stderr } = await execAsync(`xcrun simctl openurl "${udid}" "${url}"`);
+        validateUdid(udid);
+        const { stdout, stderr } = await runExecFile("xcrun", ["simctl", "openurl", udid, url]);
 
         return {
           content: [{
@@ -645,8 +639,8 @@ export function registerSimulatorTools(server: XcodeServer) {
         const outputDir = path.dirname(resolvedOutputPath);
         await fs.mkdir(outputDir, { recursive: true });
 
-        // Take the screenshot
-        const { stdout, stderr } = await execAsync(`xcrun simctl io "${udid}" screenshot "${resolvedOutputPath}"`);
+        validateUdid(udid);
+        const { stdout, stderr } = await runExecFile("xcrun", ["simctl", "io", udid, "screenshot", resolvedOutputPath]);
 
         return {
           content: [{
@@ -687,8 +681,8 @@ export function registerSimulatorTools(server: XcodeServer) {
           throw new Error("You must set confirm=true to reset a simulator. This will erase all content and settings.");
         }
 
-        // Reset the simulator
-        const { stdout, stderr } = await execAsync(`xcrun simctl erase "${udid}"`);
+        validateUdid(udid);
+        const { stdout, stderr } = await runExecFile("xcrun", ["simctl", "erase", udid]);
 
         return {
           content: [{
@@ -728,8 +722,8 @@ export function registerSimulatorTools(server: XcodeServer) {
     },
     async ({ udid }) => {
       try {
-        // Get the list of installed apps
-        const { stdout, stderr } = await execAsync(`xcrun simctl listapps "${udid}"`);
+        validateUdid(udid);
+        const { stdout, stderr } = await runExecFile("xcrun", ["simctl", "listapps", udid]);
 
         // Parse the output to extract app information
         // The output format is a plist-like structure

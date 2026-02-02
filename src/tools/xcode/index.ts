@@ -1,34 +1,36 @@
 import { z } from "zod";
-import { promisify } from "util";
-import { exec } from "child_process";
 import * as path from "path";
 import * as fs from "fs/promises";
 import { XcodeServer } from "../../server.js";
 import { CommandExecutionError, PathAccessError, FileOperationError } from "../../utils/errors.js";
-
-const execAsync = promisify(exec);
+import { runExecFile } from "../../utils/execFile.js";
 
 /**
  * Get available Xcode versions on the system
  */
 async function getXcodeVersions(): Promise<{path: string, version: string, build: string, isDefault: boolean}[]> {
   try {
-    const { stdout } = await execAsync('mdfind "kMDItemCFBundleIdentifier == com.apple.dt.Xcode"');
-    const paths = stdout.trim().split('\n').filter(Boolean);
+    const { stdout } = await runExecFile("mdfind", ["kMDItemCFBundleIdentifier == com.apple.dt.Xcode"]);
+    const paths = stdout.trim().split("\n").filter(Boolean);
 
     const versions = [];
     const defaultPath = await getDefaultXcodePath();
 
-    for (const path of paths) {
+    for (const p of paths) {
       try {
-        const { stdout: versionOutput } = await execAsync(`/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "${path}/Contents/Info.plist"`);
-        const { stdout: buildOutput } = await execAsync(`/usr/libexec/PlistBuddy -c "Print :DTXcode" "${path}/Contents/Info.plist"`);
+        const plistPath = path.join(p, "Contents", "Info.plist");
+        const { stdout: versionOutput } = await runExecFile("/usr/libexec/PlistBuddy", [
+          "-c", "Print :CFBundleShortVersionString", plistPath
+        ]);
+        const { stdout: buildOutput } = await runExecFile("/usr/libexec/PlistBuddy", [
+          "-c", "Print :DTXcode", plistPath
+        ]);
 
         versions.push({
-          path,
+          path: p,
           version: versionOutput.trim(),
           build: buildOutput.trim(),
-          isDefault: path === defaultPath
+          isDefault: p === defaultPath
         });
       } catch {
         // Skip if we can't get version info
@@ -47,7 +49,7 @@ async function getXcodeVersions(): Promise<{path: string, version: string, build
  */
 async function getDefaultXcodePath(): Promise<string> {
   try {
-    const { stdout } = await execAsync('xcode-select -p');
+    const { stdout } = await runExecFile("xcode-select", ["-p"]);
     // xcode-select returns the Developer directory, we need to go up two levels
     return path.dirname(path.dirname(stdout.trim()));
   } catch (error) {
@@ -71,36 +73,30 @@ export function registerXcodeTools(server: XcodeServer) {
     },
     async ({ tool, args = "", workingDir }) => {
       try {
-        let options = {};
-
+        const options: { cwd?: string } = {};
         if (workingDir) {
-          // Validate and resolve the working directory path
           const resolvedWorkingDir = server.pathManager.normalizePath(workingDir);
           server.pathManager.validatePathForReading(resolvedWorkingDir);
-          options = { cwd: resolvedWorkingDir };
+          options.cwd = resolvedWorkingDir;
         }
 
-        const { stdout, stderr } = await execAsync(`xcrun ${tool} ${args}`, options);
+        const xcrunArgs = args ? [tool, args] : [tool];
+        const { stdout, stderr } = await runExecFile("xcrun", xcrunArgs, options);
 
-      return {
-        content: [{
+        return {
+          content: [{
             type: "text",
-            text: `${tool} output:\n${stdout}\n${stderr ? 'Error output:\n' + stderr : ''}`
+            text: `${tool} output:\n${stdout}\n${stderr ? "Error output:\n" + stderr : ""}`
           }]
         };
       } catch (error) {
-        let stderr = '';
-        if (error instanceof Error && 'stderr' in error) {
-          stderr = (error as any).stderr;
-        }
-
         if (error instanceof PathAccessError) {
           throw new Error(`Access denied: ${error.message}`);
         }
-
+        if (error instanceof CommandExecutionError) throw error;
         throw new CommandExecutionError(
           `xcrun ${tool}`,
-          stderr || (error instanceof Error ? error.message : String(error))
+          error instanceof Error ? error.message : String(error)
         );
       }
     }
@@ -149,30 +145,26 @@ export function registerXcodeTools(server: XcodeServer) {
           throw new FileOperationError(`Failed to create output directory: ${outputDir}`, String(error));
         }
 
-        // Build the command with validated paths
-        let cmd = `xcrun actool "${resolvedCatalogPath}" --output-format human-readable-text --notices --warnings`;
-
-        // Add platform
-        cmd += ` --platform ${platform}`;
-
-        // Add deployment target
-        cmd += ` --minimum-deployment-target ${minDeploymentTarget}`;
-
-        // Add target devices
+        const plistPath = path.join(resolvedOutputDir, "assetcatalog_generated_info.plist");
+        const actoolArgs = [
+          resolvedCatalogPath,
+          "--output-format", "human-readable-text",
+          "--notices", "--warnings",
+          "--platform", platform,
+          "--minimum-deployment-target", minDeploymentTarget,
+        ];
         for (const device of targetDevices) {
-          cmd += ` --target-device ${device}`;
+          actoolArgs.push("--target-device", device);
         }
-
-        // Add app icon if specified
         if (appIcon) {
-          cmd += ` --app-icon ${appIcon}`;
+          actoolArgs.push("--app-icon", appIcon);
         }
+        actoolArgs.push(
+          "--output-partial-info-plist", plistPath,
+          "--compress-pngs", "--compile", resolvedOutputDir
+        );
 
-        // Add output paths
-        const plistPath = path.join(resolvedOutputDir, 'assetcatalog_generated_info.plist');
-        cmd += ` --output-partial-info-plist "${plistPath}" --compress-pngs --compile "${resolvedOutputDir}"`;
-
-        const { stdout, stderr } = await execAsync(cmd);
+        const { stdout, stderr } = await runExecFile("xcrun", ["actool", ...actoolArgs]);
 
       return {
         content: [{
@@ -209,29 +201,24 @@ export function registerXcodeTools(server: XcodeServer) {
     },
     async ({ args = "", command }) => {
       try {
-        let cmd = `xcrun lldb ${args}`;
-
-        // If a single command is provided, execute it and exit
+        const lldbArgs: string[] = ["lldb"];
+        if (args) lldbArgs.push(args);
         if (command) {
-          cmd += ` -o "${command}" -b`;  // -b for batch mode (exit after running commands)
+          lldbArgs.push("-o", command, "-b");
         }
+        const { stdout, stderr } = await runExecFile("xcrun", lldbArgs);
 
-        const { stdout, stderr } = await execAsync(cmd);
-
-      return {
-        content: [{
+        return {
+          content: [{
             type: "text",
-            text: `LLDB output:\n${stdout}\n${stderr ? 'Error output:\n' + stderr : ''}`
+            text: `LLDB output:\n${stdout}\n${stderr ? "Error output:\n" + stderr : ""}`
           }]
         };
       } catch (error) {
-        let stderr = '';
-        if (error instanceof Error && 'stderr' in error) {
-          stderr = (error as any).stderr;
-        }
+        if (error instanceof CommandExecutionError) throw error;
         throw new CommandExecutionError(
-          'xcrun lldb',
-          stderr || (error instanceof Error ? error.message : String(error))
+          "xcrun lldb",
+          error instanceof Error ? error.message : String(error)
         );
       }
     }
@@ -267,16 +254,16 @@ export function registerXcodeTools(server: XcodeServer) {
         const outputDir = path.dirname(resolvedOutputPath);
         await fs.mkdir(outputDir, { recursive: true });
 
-        // Build the command
-        let cmd = `xcrun xctrace record --template "${template}" --time-limit ${duration}s --output "${resolvedOutputPath}"`;
+        const xctraceArgs = [
+          "xctrace", "record",
+          "--template", template,
+          "--time-limit", `${duration}s`,
+          "--output", resolvedOutputPath,
+        ];
+        if (startSuspended) xctraceArgs.push("--launch-suspended");
+        xctraceArgs.push("--launch", "--", resolvedAppPath);
 
-        if (startSuspended) {
-          cmd += ' --launch-suspended';
-        }
-
-        cmd += ` --launch -- "${resolvedAppPath}"`;
-
-        const { stdout, stderr } = await execAsync(cmd);
+        const { stdout, stderr } = await runExecFile("xcrun", xctraceArgs);
 
         return {
           content: [{
@@ -327,41 +314,33 @@ export function registerXcodeTools(server: XcodeServer) {
 
         // Add SDK information
         try {
-          // Get iOS SDK information
-          const { stdout: iOSSDKOutput } = await execAsync('xcrun --show-sdk-path --sdk iphoneos');
+          const { stdout: iOSSDKOutput } = await runExecFile("xcrun", ["--show-sdk-path", "--sdk", "iphoneos"]);
           formattedOutput += `\niOS SDK Path: ${iOSSDKOutput.trim()}\n`;
-
-          const { stdout: iOSSDKVersionOutput } = await execAsync('xcrun --show-sdk-version --sdk iphoneos');
+          const { stdout: iOSSDKVersionOutput } = await runExecFile("xcrun", ["--show-sdk-version", "--sdk", "iphoneos"]);
           formattedOutput += `iOS SDK Version: ${iOSSDKVersionOutput.trim()}\n`;
 
-          // Get macOS SDK information
           try {
-            const { stdout: macOSSDKOutput } = await execAsync('xcrun --show-sdk-path --sdk macosx');
+            const { stdout: macOSSDKOutput } = await runExecFile("xcrun", ["--show-sdk-path", "--sdk", "macosx"]);
             formattedOutput += `\nmacOS SDK Path: ${macOSSDKOutput.trim()}\n`;
-
-            const { stdout: macOSSDKVersionOutput } = await execAsync('xcrun --show-sdk-version --sdk macosx');
+            const { stdout: macOSSDKVersionOutput } = await runExecFile("xcrun", ["--show-sdk-version", "--sdk", "macosx"]);
             formattedOutput += `macOS SDK Version: ${macOSSDKVersionOutput.trim()}\n`;
           } catch {
             // Ignore if macOS SDK info can't be retrieved
           }
 
-          // Get watchOS SDK information
           try {
-            const { stdout: watchOSSDKOutput } = await execAsync('xcrun --show-sdk-path --sdk watchos');
+            const { stdout: watchOSSDKOutput } = await runExecFile("xcrun", ["--show-sdk-path", "--sdk", "watchos"]);
             formattedOutput += `\nwatchOS SDK Path: ${watchOSSDKOutput.trim()}\n`;
-
-            const { stdout: watchOSSDKVersionOutput } = await execAsync('xcrun --show-sdk-version --sdk watchos');
+            const { stdout: watchOSSDKVersionOutput } = await runExecFile("xcrun", ["--show-sdk-version", "--sdk", "watchos"]);
             formattedOutput += `watchOS SDK Version: ${watchOSSDKVersionOutput.trim()}\n`;
           } catch {
             // Ignore if watchOS SDK info can't be retrieved
           }
 
-          // Get tvOS SDK information
           try {
-            const { stdout: tvOSSDKOutput } = await execAsync('xcrun --show-sdk-path --sdk appletvos');
+            const { stdout: tvOSSDKOutput } = await runExecFile("xcrun", ["--show-sdk-path", "--sdk", "appletvos"]);
             formattedOutput += `\ntvOS SDK Path: ${tvOSSDKOutput.trim()}\n`;
-
-            const { stdout: tvOSSDKVersionOutput } = await execAsync('xcrun --show-sdk-version --sdk appletvos');
+            const { stdout: tvOSSDKVersionOutput } = await runExecFile("xcrun", ["--show-sdk-version", "--sdk", "appletvos"]);
             formattedOutput += `tvOS SDK Version: ${tvOSSDKVersionOutput.trim()}\n`;
           } catch {
             // Ignore if tvOS SDK info can't be retrieved
@@ -460,10 +439,8 @@ export function registerXcodeTools(server: XcodeServer) {
           throw new Error('No target Xcode version found');
         }
 
-        // Use the path module
-        // (already imported at the top of the file)
-        const developerDir = path.join(targetXcode.path, 'Contents', 'Developer');
-        const { stdout, stderr } = await execAsync(`sudo xcode-select --switch "${developerDir}"`);
+        const developerDir = path.join(targetXcode.path, "Contents", "Developer");
+        const { stdout, stderr } = await runExecFile("xcode-select", ["--switch", developerDir]);
 
         return {
           content: [{
@@ -595,9 +572,12 @@ export function registerXcodeTools(server: XcodeServer) {
         // Write the export options plist
         await fs.writeFile(exportOptionsPath, exportOptionsContent, 'utf-8');
 
-        // Run the export command
-        const cmd = `xcrun xcodebuild -exportArchive -archivePath "${resolvedArchivePath}" -exportOptionsPlist "${exportOptionsPath}" -exportPath "${resolvedExportPath}"`;
-        const { stdout, stderr } = await execAsync(cmd);
+        const { stdout, stderr } = await runExecFile("xcrun", [
+          "xcodebuild", "-exportArchive",
+          "-archivePath", resolvedArchivePath,
+          "-exportOptionsPlist", exportOptionsPath,
+          "-exportPath", resolvedExportPath
+        ]);
 
         // Clean up the temporary directory
         try {
@@ -705,19 +685,14 @@ export function registerXcodeTools(server: XcodeServer) {
           }
         }
 
-        // Build the validation command
-        let cmd;
-
+        const altoolArgs = ["altool", "--validate-app", "-f", resolvedIpaPath, "--type", "ios"];
         if (apiKey && apiIssuer && apiKeyPath) {
-          // Use API Key authentication
           const resolvedApiKeyPath = server.pathManager.normalizePath(apiKeyPath);
-          cmd = `xcrun altool --validate-app -f "${resolvedIpaPath}" --apiKey "${apiKey}" --apiIssuer "${apiIssuer}" --api-key-path "${resolvedApiKeyPath}" --type ios`;
+          altoolArgs.push("--apiKey", apiKey, "--apiIssuer", apiIssuer, "--api-key-path", resolvedApiKeyPath);
         } else {
-          // Use username/password authentication
-          cmd = `xcrun altool --validate-app -f "${resolvedIpaPath}" -u "${username}" -p "${password}" --type ios`;
+          altoolArgs.push("-u", username, "-p", password);
         }
-
-        const { stdout, stderr } = await execAsync(cmd);
+        const { stdout, stderr } = await runExecFile("xcrun", altoolArgs);
 
         // Check for validation success
         if (stdout.includes("No errors validating")) {
@@ -844,9 +819,7 @@ export function registerXcodeTools(server: XcodeServer) {
             const filename = `icon_${size}x${size}@${scale}x.png`;
             const outputFilePath = path.join(iconsetPath, filename);
 
-            // Generate the resized image
-            const resizeCmd = `sips -Z ${pixelSize} "${resolvedSourceImage}" --out "${outputFilePath}"`;
-            await execAsync(resizeCmd);
+            await runExecFile("sips", ["-Z", String(pixelSize), resolvedSourceImage, "--out", outputFilePath]);
 
             // Add to Contents.json
             (contentsJson.images as any[]).push({

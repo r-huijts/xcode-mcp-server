@@ -1,13 +1,17 @@
 import { z } from "zod";
-import { promisify } from "util";
-import { exec } from "child_process";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { XcodeServer } from "../../server.js";
 import { ProjectNotFoundError, XcodeServerError, CommandExecutionError, PathAccessError } from "../../utils/errors.js";
 import { getProjectInfo, getWorkspaceInfo } from "../../utils/project.js";
+import { runExecFile } from "../../utils/execFile.js";
 
-const execAsync = promisify(exec);
+function xcodeBuildArgs(projectPath: string, isWorkspace: boolean): string[] {
+  if (projectPath.endsWith(".xcworkspace") || isWorkspace) {
+    return ["-workspace", projectPath];
+  }
+  return ["-project", projectPath];
+}
 
 /**
  * Register build and testing tools
@@ -149,27 +153,12 @@ export function registerBuildTools(server: XcodeServer) {
 
       try {
         const workingDir = server.directoryState.getActiveDirectory();
-
-        // Construct the base command
-        let projectFlag;
         const projectPath = server.activeProject.path;
+        const args = [...xcodeBuildArgs(projectPath, server.activeProject.isWorkspace ?? false)];
+        if (scheme) args.push("-scheme", scheme);
+        args.push("-showdestinations", "-json");
 
-        // Check if the path ends with .xcworkspace (workspace) or .xcodeproj (project)
-        if (projectPath.endsWith('.xcworkspace')) {
-          projectFlag = `-workspace "${projectPath}"`;
-        } else if (projectPath.endsWith('.xcodeproj')) {
-          projectFlag = `-project "${projectPath}"`;
-        } else {
-          // Fall back to the server's detection mechanism
-          projectFlag = server.activeProject.isWorkspace ? `-workspace "${projectPath}"` : `-project "${projectPath}"`;
-        }
-
-        const schemeArg = scheme ? `-scheme "${scheme}"` : "";
-
-        // Request destinations in a more structured format
-        const cmd = `cd "${workingDir}" && xcodebuild ${projectFlag} ${schemeArg} -showdestinations -json`;
-
-        const { stdout, stderr } = await execAsync(cmd);
+        const { stdout, stderr } = await runExecFile("xcodebuild", args, { cwd: workingDir });
 
         // Parse destinations from JSON output
         let destinations;
@@ -217,25 +206,10 @@ export function registerBuildTools(server: XcodeServer) {
 
       try {
         const workingDir = server.directoryState.getActiveDirectory();
-
-        // Construct the base command
-        let projectFlag;
         const projectPath = server.activeProject.path;
+        const args = [...xcodeBuildArgs(projectPath, server.activeProject.isWorkspace ?? false), "-list", "-json"];
 
-        // Check if the path ends with .xcworkspace (workspace) or .xcodeproj (project)
-        if (projectPath.endsWith('.xcworkspace')) {
-          projectFlag = `-workspace "${projectPath}"`;
-        } else if (projectPath.endsWith('.xcodeproj')) {
-          projectFlag = `-project "${projectPath}"`;
-        } else {
-          // Fall back to the server's detection mechanism
-          projectFlag = server.activeProject.isWorkspace ? `-workspace "${projectPath}"` : `-project "${projectPath}"`;
-        }
-
-        // Request schemes in a more structured format
-        const cmd = `cd "${workingDir}" && xcodebuild ${projectFlag} -list -json`;
-
-        const { stdout, stderr } = await execAsync(cmd);
+        const { stdout, stderr } = await runExecFile("xcodebuild", args, { cwd: workingDir });
 
         // Parse schemes from JSON output
         let schemeInfo;
@@ -335,37 +309,19 @@ export function registerBuildTools(server: XcodeServer) {
           throw new XcodeServerError("No scheme specified and no schemes found in the project");
         }
 
-        // Construct the base command
-        let projectFlag;
         const projectPath = server.activeProject.path;
-
-        // Check if the path ends with .xcworkspace (workspace) or .xcodeproj (project)
-        if (projectPath.endsWith('.xcworkspace')) {
-          projectFlag = `-workspace "${projectPath}"`;
-        } else if (projectPath.endsWith('.xcodeproj')) {
-          projectFlag = `-project "${projectPath}"`;
-        } else {
-          // Fall back to the server's detection mechanism
-          projectFlag = server.activeProject.isWorkspace ? `-workspace "${projectPath}"` : `-project "${projectPath}"`;
-        }
-
-        // Add configuration if provided
-        const configFlag = configuration ? `-configuration "${configuration}"` : "";
-
+        const args = [...xcodeBuildArgs(projectPath, server.activeProject.isWorkspace ?? false), "-scheme", schemeToUse];
+        if (configuration) args.push("-configuration", configuration);
         let sanitizedDerivedDataPath: string | undefined;
         if (derivedDataPath) {
           const resolvedPath = server.pathManager.normalizePath(derivedDataPath);
           server.pathManager.validatePathForWriting(resolvedPath);
           sanitizedDerivedDataPath = resolvedPath;
         }
+        if (sanitizedDerivedDataPath) args.push("-derivedDataPath", sanitizedDerivedDataPath);
+        args.push("clean");
 
-        // Add derived data path if provided
-        const derivedDataFlag = sanitizedDerivedDataPath ? `-derivedDataPath "${sanitizedDerivedDataPath}"` : "";
-
-        // Build the clean command
-        const cmd = `cd "${workingDir}" && xcodebuild ${projectFlag} -scheme "${schemeToUse}" ${configFlag} ${derivedDataFlag} clean`;
-
-        const { stdout, stderr } = await execAsync(cmd);
+        const { stdout, stderr } = await runExecFile("xcodebuild", args, { cwd: workingDir });
 
         return {
           content: [{
@@ -442,27 +398,16 @@ export function registerBuildTools(server: XcodeServer) {
           throw new XcodeServerError(`Invalid configuration "${configuration}". Available configurations: ${projectInfo.configurations.join(", ")}`);
         }
 
-        // Construct the base command
-        let projectFlag;
         const projectPath = server.activeProject.path;
+        const args = [
+          ...xcodeBuildArgs(projectPath, server.activeProject.isWorkspace ?? false),
+          "-scheme", scheme,
+          "-configuration", configuration,
+        ];
+        if (destination) args.push("-destination", destination);
+        args.push("-archivePath", resolvedArchivePath, "archive");
 
-        // Check if the path ends with .xcworkspace (workspace) or .xcodeproj (project)
-        if (projectPath.endsWith('.xcworkspace')) {
-          projectFlag = `-workspace "${projectPath}"`;
-        } else if (projectPath.endsWith('.xcodeproj')) {
-          projectFlag = `-project "${projectPath}"`;
-        } else {
-          // Fall back to the server's detection mechanism
-          projectFlag = server.activeProject.isWorkspace ? `-workspace "${projectPath}"` : `-project "${projectPath}"`;
-        }
-
-        // Add destination if provided
-        const destinationFlag = destination ? `-destination "${destination}"` : "";
-
-        // Build the archive command
-        const cmd = `cd "${workingDir}" && xcodebuild ${projectFlag} -scheme "${scheme}" -configuration "${configuration}" ${destinationFlag} -archivePath "${resolvedArchivePath}" archive`;
-
-        const { stdout, stderr } = await execAsync(cmd);
+        const { stdout, stderr } = await runExecFile("xcodebuild", args, { cwd: workingDir });
 
         // Check if export options plist is provided for follow-up instructions
         let followUpInstructions = "";
@@ -523,8 +468,7 @@ export function registerBuildTools(server: XcodeServer) {
  */
 async function findBestAvailableSimulator(runtimePrefix = 'iOS') {
   try {
-    // Get list of all simulators in JSON format
-    const { stdout: simulatorList } = await execAsync('xcrun simctl list --json');
+    const { stdout: simulatorList } = await runExecFile("xcrun", ["simctl", "list", "--json"]);
     const simulators = JSON.parse(simulatorList);
 
     // Find the latest runtime that matches our prefix
@@ -606,49 +550,30 @@ async function analyzeFile(server: XcodeServer, filePath: string, options: { sdk
       throw new XcodeServerError(`Scheme '${options.scheme}' not found. Available schemes: ${info.schemes.join(', ')}`);
     }
 
-    let destinationFlag = '';
+    const projectPath = server.activeProject.path;
+    const workingDir = server.directoryState.getActiveDirectory();
+    const relativeFilePath = path.relative(workingDir, filePath);
+    if (relativeFilePath.startsWith("..")) {
+      throw new XcodeServerError(`File is outside the project directory: ${filePath}`);
+    }
 
-    // If SDK is provided, use it directly
+    const args = [
+      ...xcodeBuildArgs(projectPath, server.activeProject.isWorkspace ?? false),
+      "-scheme", scheme,
+    ];
     if (options.sdk) {
-      destinationFlag = `-sdk ${options.sdk}`;
+      args.push("-sdk", options.sdk);
     } else {
-      // Otherwise, find a suitable simulator
       const simulator = await findBestAvailableSimulator();
       if (!simulator) {
         throw new XcodeServerError("No available iOS simulators found. Please install at least one iOS simulator or specify an SDK.");
       }
-
-      destinationFlag = `-destination "platform=iOS Simulator,id=${simulator.udid}"`;
+      args.push("-destination", `platform=iOS Simulator,id=${simulator.udid}`);
     }
-
-    // Build the analyze command
-    let projectFlag;
-    const projectPath = server.activeProject.path;
-
-    // Check if the path ends with .xcworkspace (workspace) or .xcodeproj (project)
-    if (projectPath.endsWith('.xcworkspace')) {
-      projectFlag = `-workspace "${projectPath}"`;
-    } else if (projectPath.endsWith('.xcodeproj')) {
-      projectFlag = `-project "${projectPath}"`;
-    } else {
-      // Fall back to the server's detection mechanism
-      projectFlag = server.activeProject.isWorkspace ? `-workspace "${projectPath}"` : `-project "${projectPath}"`;
-    }
-
-    // Get the active directory from ProjectDirectoryState for the working directory
-    const workingDir = server.directoryState.getActiveDirectory();
-
-    // Get the relative path to the file from the working directory
-    const relativeFilePath = path.relative(workingDir, filePath);
-    if (relativeFilePath.startsWith('..')) {
-      throw new XcodeServerError(`File is outside the project directory: ${filePath}`);
-    }
-
-    // Build the analyze command with more options for better analysis
-    const cmd = `cd "${workingDir}" && xcodebuild ${projectFlag} -scheme "${scheme}" ${destinationFlag} analyze -quiet -analyzer-output html "${relativeFilePath}"`;
+    args.push("analyze", "-quiet", "-analyzer-output", "html", relativeFilePath);
 
     try {
-      const { stdout, stderr } = await execAsync(cmd);
+      const { stdout, stderr } = await runExecFile("xcodebuild", args, { cwd: workingDir });
 
       // Check for common warning patterns
       let formattedOutput = `Analysis of ${path.basename(filePath)} completed.\n\n`;
@@ -747,17 +672,14 @@ async function buildProject(server: XcodeServer, configuration: string, scheme: 
   try {
     // Different command for workspace vs project vs SPM
     if (server.activeProject.isSPMProject) {
-      // For SPM projects, we use swift build
-      const buildConfig = configuration.toLowerCase() === 'release' ? '--configuration release' : '';
       try {
         // Use the active directory from ProjectDirectoryState for the working directory
         const workingDir = server.directoryState.getActiveDirectory();
 
-        // Add jobs parameter if specified
-        const jobsArg = options.jobs ? `--jobs ${options.jobs}` : '';
-
-        const cmd = `cd "${workingDir}" && swift build ${buildConfig} ${jobsArg}`;
-        const { stdout, stderr } = await execAsync(cmd);
+        const swiftArgs = ["build"];
+        if (configuration.toLowerCase() === "release") swiftArgs.push("--configuration", "release");
+        if (options.jobs) swiftArgs.push("--jobs", String(options.jobs));
+        const { stdout, stderr } = await runExecFile("swift", swiftArgs, { cwd: workingDir });
         return {
           content: [{
             type: "text",
@@ -792,46 +714,24 @@ async function buildProject(server: XcodeServer, configuration: string, scheme: 
       throw new XcodeServerError(`Invalid scheme "${scheme}". Available schemes: ${projectInfo.schemes.join(", ")}`);
     }
 
-    // Use -workspace for workspace projects, -project for regular projects
-    // Check if the file exists and has the correct extension
-    let projectFlag;
-
-    // Check if the path ends with .xcworkspace (workspace) or .xcodeproj (project)
-    if (projectPath.endsWith('.xcworkspace')) {
-      projectFlag = `-workspace "${projectPath}"`;
-    } else if (projectPath.endsWith('.xcodeproj')) {
-      projectFlag = `-project "${projectPath}"`;
-    } else {
-      // Fall back to the server's detection mechanism
-      projectFlag = server.activeProject.isWorkspace ? `-workspace "${projectPath}"` : `-project "${projectPath}"`;
-    }
-
-    // Handle destination or SDK specification
-    let destinationOrSdkFlag = '';
-    if (options.destination) {
-      destinationOrSdkFlag = `-destination "${options.destination}"`;
-    } else if (options.sdk) {
-      destinationOrSdkFlag = `-sdk ${options.sdk}`;
-    } else {
-      // Try to find a suitable simulator if no destination or SDK is specified
-      const simulator = await findBestAvailableSimulator();
-      if (simulator) {
-        destinationOrSdkFlag = `-destination "platform=iOS Simulator,id=${simulator.udid}"`;
-      }
-    }
-
-    // Handle additional options
-    const jobsFlag = options.jobs ? `-jobs ${options.jobs}` : '';
-    const derivedDataFlag = sanitizedDerivedDataPath ? `-derivedDataPath "${sanitizedDerivedDataPath}"` : '';
-
-    // Use the active directory from ProjectDirectoryState for the working directory
     const workingDir = server.directoryState.getActiveDirectory();
-
-    // More advanced build command with enhanced options
-    const cmd = `cd "${workingDir}" && xcodebuild ${projectFlag} -scheme "${scheme}" -configuration "${configuration}" ${destinationOrSdkFlag} ${jobsFlag} ${derivedDataFlag} build -quiet`;
+    const args = [
+      ...xcodeBuildArgs(projectPath, server.activeProject.isWorkspace ?? false),
+      "-scheme", scheme,
+      "-configuration", configuration,
+    ];
+    if (options.destination) args.push("-destination", options.destination);
+    else if (options.sdk) args.push("-sdk", options.sdk);
+    else {
+      const simulator = await findBestAvailableSimulator();
+      if (simulator) args.push("-destination", `platform=iOS Simulator,id=${simulator.udid}`);
+    }
+    if (options.jobs) args.push("-jobs", String(options.jobs));
+    if (sanitizedDerivedDataPath) args.push("-derivedDataPath", sanitizedDerivedDataPath);
+    args.push("build", "-quiet");
 
     try {
-      const { stdout, stderr } = await execAsync(cmd);
+      const { stdout, stderr } = await runExecFile("xcodebuild", args, { cwd: workingDir });
 
       // Check for known error patterns
       if (stderr && (
@@ -909,81 +809,43 @@ async function runTests(server: XcodeServer, options: {
       sanitizedResultBundlePath = resolvedPath;
     }
 
-    // Build the command with all the provided options
-    let projectFlag;
     const projectPath = server.activeProject.path;
-
-    // Check if the path ends with .xcworkspace (workspace) or .xcodeproj (project)
-    if (projectPath.endsWith('.xcworkspace')) {
-      projectFlag = `-workspace "${projectPath}"`;
-    } else if (projectPath.endsWith('.xcodeproj')) {
-      projectFlag = `-project "${projectPath}"`;
-    } else {
-      // Fall back to the server's detection mechanism
-      projectFlag = server.activeProject.isWorkspace ? `-workspace "${projectPath}"` : `-project "${projectPath}"`;
-    }
-
-    // If scheme is provided, use it, otherwise we need to figure out a scheme
-    let schemeFlag = '';
+    let schemeToUse: string;
     if (options.scheme) {
-      schemeFlag = `-scheme "${options.scheme}"`;
+      schemeToUse = options.scheme;
     } else {
-      // Try to get schemes from the project info
-      try {
-        const info = server.activeProject.isWorkspace ?
-          await getWorkspaceInfo(server.activeProject.path) :
-          await getProjectInfo(server.activeProject.path);
-
-        if (info.schemes && info.schemes.length > 0) {
-          schemeFlag = `-scheme "${info.schemes[0]}"`;
-        } else {
-          throw new XcodeServerError("No schemes found in the project. Please specify a scheme for testing.");
-        }
-      } catch (error) {
-        throw new XcodeServerError("Failed to determine scheme for testing. Please specify a scheme.");
+      const info = server.activeProject.isWorkspace
+        ? await getWorkspaceInfo(server.activeProject.path)
+        : await getProjectInfo(server.activeProject.path);
+      if (info.schemes && info.schemes.length > 0) {
+        schemeToUse = info.schemes[0];
+      } else {
+        throw new XcodeServerError("No schemes found in the project. Please specify a scheme for testing.");
       }
     }
 
-    // Handle testPlan option
-    const testPlanFlag = options.testPlan ? `-testPlan "${options.testPlan}"` : "";
-
-    // Handle destination option or find a suitable simulator
-    let destinationFlag = '';
-    if (options.destination) {
-      destinationFlag = `-destination "${options.destination}"`;
-    } else {
-      // Try to find a suitable simulator
+    const args = [
+      ...xcodeBuildArgs(projectPath, server.activeProject.isWorkspace ?? false),
+      "-scheme", schemeToUse,
+    ];
+    if (options.destination) args.push("-destination", options.destination);
+    else {
       const simulator = await findBestAvailableSimulator();
-      if (simulator) {
-        destinationFlag = `-destination "platform=iOS Simulator,id=${simulator.udid}"`;
-      }
+      if (simulator) args.push("-destination", `platform=iOS Simulator,id=${simulator.udid}`);
     }
-
-    // Handle only-testing flags
-    const onlyTestingFlags = options.onlyTesting && options.onlyTesting.length > 0
-      ? options.onlyTesting.map(test => `-only-testing:${test}`).join(' ')
-      : '';
-
-    // Handle skip-testing flags
-    const skipTestingFlags = options.skipTesting && options.skipTesting.length > 0
-      ? options.skipTesting.map(test => `-skip-testing:${test}`).join(' ')
-      : '';
-
-    // Handle result bundle path
-    const resultBundleFlag = sanitizedResultBundlePath
-      ? `-resultBundlePath "${sanitizedResultBundlePath}"`
-      : '';
-
-    // Handle code coverage
-    const codeCoverageFlag = options.enableCodeCoverage === true
-      ? '-enableCodeCoverage YES'
-      : '';
-
-    // Build the full command
-    const cmd = `cd "${workingDir}" && xcodebuild ${projectFlag} ${schemeFlag} ${destinationFlag} ${testPlanFlag} ${onlyTestingFlags} ${skipTestingFlags} ${resultBundleFlag} ${codeCoverageFlag} test`;
+    if (options.testPlan) args.push("-testPlan", options.testPlan);
+    if (options.onlyTesting?.length) {
+      for (const t of options.onlyTesting) args.push("-only-testing:" + t);
+    }
+    if (options.skipTesting?.length) {
+      for (const t of options.skipTesting) args.push("-skip-testing:" + t);
+    }
+    if (sanitizedResultBundlePath) args.push("-resultBundlePath", sanitizedResultBundlePath);
+    if (options.enableCodeCoverage === true) args.push("-enableCodeCoverage", "YES");
+    args.push("test");
 
     try {
-      const { stdout, stderr } = await execAsync(cmd);
+      const { stdout, stderr } = await runExecFile("xcodebuild", args, { cwd: workingDir });
 
       // Check for test failures
       const hasFailures = stdout.includes("** TEST FAILED **") || stderr.includes("** TEST FAILED **");

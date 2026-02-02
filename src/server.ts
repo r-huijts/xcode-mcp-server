@@ -1,8 +1,7 @@
 import { McpServer, ResourceTemplate } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { exec } from "child_process";
-import { promisify } from "util";
 import * as fs from "fs/promises";
+import { runExecFile } from "./utils/execFile.js";
 import * as fsSync from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -19,8 +18,6 @@ import { ProjectDirectoryState } from "./utils/projectDirectoryState.js";
 
 // Load environment variables from .env file
 dotenv.config();
-
-const execAsync = promisify(exec);
 
 // Tool registration functions
 import { registerProjectTools } from "./tools/project/index.js";
@@ -173,16 +170,10 @@ export class XcodeServer {
     try {
       // Attempt to get the frontmost Xcode project via AppleScript.
       try {
-        const { stdout: frontmostProject } = await execAsync(`
-          osascript -e '
-            tell application "Xcode"
-              if it is running then
-                set projectFile to path of document 1
-                return POSIX path of projectFile
-              end if
-            end tell
-          '
-        `);
+        const { stdout: frontmostProject } = await runExecFile("osascript", [
+          "-e",
+          "tell application \"Xcode\"\n  if it is running then\n    set projectFile to path of document 1\n    return POSIX path of projectFile\n  end if\nend tell"
+        ]);
 
         if (frontmostProject && frontmostProject.trim()) {
           const projectPath = frontmostProject.trim();
@@ -276,7 +267,13 @@ export class XcodeServer {
 
       // Further fallback: try reading recent projects from Xcode defaults.
       try {
-        const { stdout: recentProjects } = await execAsync('defaults read com.apple.dt.Xcode IDERecentWorkspaceDocuments || true');
+        let recentProjects = "";
+        try {
+          const result = await runExecFile("defaults", ["read", "com.apple.dt.Xcode", "IDERecentWorkspaceDocuments"]);
+          recentProjects = result.stdout;
+        } catch {
+          // defaults read exits 1 if key missing
+        }
         if (recentProjects) {
           const projectMatch = recentProjects.match(/= \\"([^"]+)"/);
           if (projectMatch) {
